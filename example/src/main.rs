@@ -48,7 +48,7 @@ async fn main() {
     println!("Sent PING!");
     let mut response_body_stream = response.body_stream();
     while let Some(data) = response_body_stream.next().await.transpose().unwrap() {
-        println!("Received a frame with {} bytes", data.len());
         assert_eq!(PONG.as_bytes(), data);
+        println!("Received a message: {}", String::from_utf8_lossy(&data));
     }
 }
