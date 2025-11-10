@@ -12,7 +12,7 @@ use http::{Request, Uri, Version};
 use http_body::Body;
 use http_body_util::BodyStream;
 use iroh::{Endpoint, EndpointId, KeyParsingError, endpoint::ConnectError};
-use iroh_h3::{BidiStream, Connection as IrohH3Connection};
+use iroh_h3::{BidiStream, Connection as IrohH3Connection, OpenStreams};
 
 /// A client for sending HTTP/3 requests over an [`iroh`] QUIC endpoint.
 ///
@@ -95,6 +95,7 @@ impl IrohH3Client {
             inner,
             stream,
             conn,
+            _sender: sender,
         })
     }
 
@@ -144,6 +145,7 @@ pub struct Response {
     inner: http::response::Parts,
     stream: h3::client::RequestStream<BidiStream<Bytes>, Bytes>,
     conn: h3::client::Connection<IrohH3Connection, Bytes>,
+    _sender: h3::client::SendRequest<OpenStreams, Bytes>,
 }
 
 impl Deref for Response {
@@ -217,8 +219,8 @@ impl Response {
                 if let Poll::Ready(result) = poll_data {
                     let item = match result.transpose() {
                         Some(Ok(mut frame)) => Some(Ok(frame.copy_to_bytes(frame.remaining()))),
-                        Some(Err(error)) => Some(Err(error.into())),
-                        None => None,
+                        Some(Err(error)) if !error.is_h3_no_error() => Some(Err(error.into())),
+                        _ => None,
                     };
                     return Poll::Ready(item);
                 }
