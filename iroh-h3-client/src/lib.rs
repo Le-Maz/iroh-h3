@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use bytes::{Buf, Bytes};
 use h3::error::{ConnectionError, StreamError};
-use http::{Request, Uri};
+use http::{Request, Uri, Version};
 use iroh::{EndpointId, KeyParsingError, endpoint::ConnectError};
 use iroh_h3::BidiStream;
 use thiserror::Error;
@@ -18,7 +18,8 @@ impl IrohH3Client {
         authority.parse().map_err(HttpError::BadPeerId)
     }
 
-    pub async fn send<B: Buf>(&self, request: Request<B>) -> Result<Response, HttpError> {
+    pub async fn send<B: Buf>(&self, mut request: Request<B>) -> Result<Response, HttpError> {
+        *request.version_mut() = Version::HTTP_3;
         let peer_id = Self::peer_id(request.uri())?;
         let conn = self.endpoint.connect(peer_id, &self.alpn).await?;
         let conn = iroh_h3::Connection::new(conn);
