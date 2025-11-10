@@ -1422,6 +1422,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroh-h3-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "h3",
+ "http",
+ "http-body",
+ "iroh",
+ "iroh-h3",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
 name = "iroh-metrics"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
