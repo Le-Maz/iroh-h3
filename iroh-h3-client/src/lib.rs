@@ -5,7 +5,6 @@ use h3::error::{ConnectionError, StreamError};
 use http::{Request, Uri, Version};
 use iroh::{EndpointId, KeyParsingError, endpoint::ConnectError};
 use iroh_h3::BidiStream;
-use thiserror::Error;
 
 pub struct IrohH3Client {
     endpoint: iroh::Endpoint,
@@ -13,12 +12,12 @@ pub struct IrohH3Client {
 }
 
 impl IrohH3Client {
-    fn peer_id(uri: &Uri) -> Result<EndpointId, HttpError> {
-        let authority = uri.authority().ok_or(HttpError::MissingAuthority)?.as_str();
-        authority.parse().map_err(HttpError::BadPeerId)
+    fn peer_id(uri: &Uri) -> Result<EndpointId, Error> {
+        let authority = uri.authority().ok_or(Error::MissingAuthority)?.as_str();
+        authority.parse().map_err(Error::BadPeerId)
     }
 
-    pub async fn send<B: Buf>(&self, mut request: Request<B>) -> Result<Response, HttpError> {
+    pub async fn send<B: Buf>(&self, mut request: Request<B>) -> Result<Response, Error> {
         *request.version_mut() = Version::HTTP_3;
         let peer_id = Self::peer_id(request.uri())?;
         let conn = self.endpoint.connect(peer_id, &self.alpn).await?;
@@ -54,7 +53,7 @@ impl Deref for Response {
 }
 
 impl Response {
-    pub async fn body_bytes(&mut self) -> Result<Bytes, HttpError> {
+    pub async fn body_bytes(&mut self) -> Result<Bytes, Error> {
         let mut buf = Vec::new();
         while let Some(mut response_body) = self.conn.process(self.stream.recv_data()).await? {
             while response_body.has_remaining() {
@@ -67,8 +66,8 @@ impl Response {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum HttpError {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
     #[error("Missing URI authority")]
     MissingAuthority,
     #[error("Bad peer ID: {0}")]
@@ -87,18 +86,18 @@ trait ConnectionProcess {
     fn process<T, E>(
         &mut self,
         future: impl Future<Output = Result<T, E>>,
-    ) -> impl Future<Output = Result<T, HttpError>>
+    ) -> impl Future<Output = Result<T, Error>>
     where
-        HttpError: From<E>;
+        Error: From<E>;
 }
 
 impl ConnectionProcess for h3::client::Connection<iroh_h3::Connection, Bytes> {
     async fn process<T, E>(
         &mut self,
         future: impl Future<Output = Result<T, E>>,
-    ) -> Result<T, HttpError>
+    ) -> Result<T, Error>
     where
-        HttpError: From<E>,
+        Error: From<E>,
     {
         tokio::select! {
             result = future => Ok(result?),
