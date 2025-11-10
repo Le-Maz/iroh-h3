@@ -42,6 +42,7 @@ impl IrohH3Client {
     }
 }
 
+#[must_use]
 pub struct Response {
     inner: http::response::Parts,
     stream: h3::client::RequestStream<BidiStream<Bytes>, Bytes>,
