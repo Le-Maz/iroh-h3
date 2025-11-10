@@ -12,6 +12,10 @@ pub struct IrohH3Client {
 }
 
 impl IrohH3Client {
+    pub fn new(endpoint: iroh::Endpoint, alpn: Vec<u8>) -> Self {
+        Self { endpoint, alpn }
+    }
+
     fn peer_id(uri: &Uri) -> Result<EndpointId, Error> {
         let authority = uri.authority().ok_or(Error::MissingAuthority)?.as_str();
         authority.parse().map_err(Error::BadPeerId)
