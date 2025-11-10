@@ -1,5 +1,6 @@
 use axum::routing::get;
 use bytes::Bytes;
+use futures::StreamExt;
 use http::Request;
 use http_body_util::Empty;
 use iroh::{Endpoint, discovery::dns::DnsDiscovery};
@@ -37,7 +38,11 @@ async fn main() {
 
     let mut response = client.send(request).await.unwrap();
     println!("Sent PING!");
-    let response_body = response.body_bytes().await.unwrap();
+    let mut response_body_stream = response.body_stream();
+    let mut response_body = Vec::new();
+    while let Some(data) = response_body_stream.next().await.transpose().unwrap() {
+        println!("Received a frame with {} bytes", data.len());
+        response_body.extend_from_slice(&data);
+    }
     assert_eq!(PONG.as_bytes(), response_body);
-    println!("Received PONG!");
 }

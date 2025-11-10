@@ -1,8 +1,9 @@
-use std::future::Future;
 use std::ops::Deref;
+use std::pin::Pin;
+use std::{future::Future, task::Poll};
 
 use bytes::{Buf, Bytes};
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use h3::{
     client::RequestStream,
     error::{ConnectionError, StreamError},
@@ -180,6 +181,58 @@ impl Response {
         }
 
         Ok(Bytes::from(buf))
+    }
+
+    /// Returns a stream of [`Bytes`] representing the response body.
+    ///
+    /// This method provides an asynchronous stream of chunks of the response body.
+    /// It consumes HTTP/3 DATA frames as they arrive, allowing the caller to process
+    /// the body incrementally without waiting for the entire response to be received.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if a connection or stream error occurs while reading.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut response = client.send(request).await?;
+    /// let mut body_stream = response.body_stream();
+    /// while let Some(data) = body_stream.next().await.transpose()? {
+    ///     println!("Received frame: {:?}", data);
+    /// }
+    /// ```
+    pub fn body_stream(&mut self) -> impl Stream<Item = Result<Bytes, Error>> {
+        struct StreamingBody<'response> {
+            response: &'response mut Response,
+        }
+
+        impl<'response> Stream for StreamingBody<'response> {
+            type Item = Result<Bytes, Error>;
+
+            fn poll_next(
+                mut self: Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> Poll<Option<Self::Item>> {
+                let poll_data = self.response.stream.poll_recv_data(cx);
+                let poll_close = self.response.conn.poll_close(cx);
+                if let Poll::Ready(result) = poll_data {
+                    let item = match result.transpose() {
+                        Some(Ok(mut frame)) => Some(Ok(frame.copy_to_bytes(frame.remaining()))),
+                        Some(Err(error)) => Some(Err(error.into())),
+                        None => None,
+                    };
+                    return Poll::Ready(item);
+                }
+                if let Poll::Ready(result) = poll_close {
+                    if result.is_h3_no_error() {
+                        return Poll::Ready(None);
+                    }
+                    return Poll::Ready(Some(Err(result.into())));
+                }
+                Poll::Pending
+            }
+        }
+
+        StreamingBody { response: self }
     }
 }
 
