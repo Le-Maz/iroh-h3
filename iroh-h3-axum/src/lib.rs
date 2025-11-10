@@ -13,14 +13,20 @@ use http_body::Frame;
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use tower_service::Service;
 
-use crate::h3::{BidiStream, Connection, RecvStream};
+use iroh_h3::{BidiStream, Connection, RecvStream};
 
-type H3ServerConnection = h3::server::Connection<crate::h3::Connection, Bytes>;
+type H3ServerConnection = h3::server::Connection<iroh_h3::Connection, Bytes>;
 type H3ServerRequestStream = h3::server::RequestStream<BidiStream<Bytes>, Bytes>;
 
 #[derive(Debug)]
 pub struct IrohAxum {
     router: Router,
+}
+
+impl IrohAxum {
+    pub fn new(router: Router) -> Self {
+        Self { router }
+    }
 }
 
 #[repr(transparent)]
@@ -52,10 +58,6 @@ impl HttpBody for RequestBody {
 }
 
 impl IrohAxum {
-    pub fn new(router: Router) -> Self {
-        Self { router }
-    }
-
     async fn handle_request(&self, request: http::Request<()>, stream: H3ServerRequestStream) {
         let router = self.router.clone();
         tokio::spawn(async move {

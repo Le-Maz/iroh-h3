@@ -1398,6 +1398,17 @@ dependencies = [
 name = "iroh-h3"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "futures",
+ "h3",
+ "iroh",
+ "tokio-util",
+]
+
+[[package]]
+name = "iroh-h3-axum"
+version = "0.1.0"
+dependencies = [
  "axum",
  "bytes",
  "futures",
@@ -1405,8 +1416,8 @@ dependencies = [
  "http",
  "http-body",
  "iroh",
+ "iroh-h3",
  "tokio",
- "tokio-util",
  "tower-service",
 ]
 
