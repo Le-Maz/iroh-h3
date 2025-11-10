@@ -13,9 +13,7 @@ const ALPN: &[u8] = b"h3";
 const PONG: &str = "Pong!";
 
 async fn streaming_ping() -> impl IntoResponse {
-    Body::from_stream(repeat(Ok::<Bytes, Infallible>(Bytes::from_static(
-        PONG.as_bytes(),
-    ))))
+    Body::from_stream(repeat(Ok::<Bytes, Infallible>(Bytes::from_static(PONG.as_bytes()))).take(10))
 }
 
 #[tokio::main]
