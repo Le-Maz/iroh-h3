@@ -2,8 +2,14 @@ use std::future::Future;
 use std::ops::Deref;
 
 use bytes::{Buf, Bytes};
-use h3::error::{ConnectionError, StreamError};
+use futures::StreamExt;
+use h3::{
+    client::RequestStream,
+    error::{ConnectionError, StreamError},
+};
 use http::{Request, Uri, Version};
+use http_body::Body;
+use http_body_util::BodyStream;
 use iroh::{Endpoint, EndpointId, KeyParsingError, endpoint::ConnectError};
 use iroh_h3::{BidiStream, Connection as IrohH3Connection};
 
@@ -58,7 +64,11 @@ impl IrohH3Client {
     ///
     /// # Errors
     /// Returns an [`Error`] if connection setup, sending, or response reception fails.
-    pub async fn send<B: Buf>(&self, mut request: Request<B>) -> Result<Response, Error> {
+    pub async fn send<B>(&self, mut request: Request<B>) -> Result<Response, Error>
+    where
+        B: Body,
+        <B as Body>::Error: std::error::Error + Send + Sync + 'static,
+    {
         *request.version_mut() = Version::HTTP_3;
 
         let peer_id = Self::peer_id(request.uri())?;
@@ -67,14 +77,14 @@ impl IrohH3Client {
         let conn = IrohH3Connection::new(conn);
         let (mut conn, mut sender) = h3::client::new(conn).await?;
 
-        let (parts, mut body) = request.into_parts();
+        let (parts, body) = request.into_parts();
         let req = Request::from_parts(parts, ());
 
         let mut stream = conn.process(sender.send_request(req)).await?;
 
-        // Send the full body as one chunk.
-        let buf = body.copy_to_bytes(body.remaining());
-        conn.process(stream.send_data(buf)).await?;
+        conn.process(Self::send_body(&mut stream, body)).await?;
+
+        stream.finish().await?;
 
         // Receive the initial response headers.
         let response = conn.process(stream.recv_response()).await?;
@@ -85,6 +95,43 @@ impl IrohH3Client {
             stream,
             conn,
         })
+    }
+
+    /// Internal function for sending a request body
+    async fn send_body<B>(
+        stream: &mut RequestStream<BidiStream<Bytes>, Bytes>,
+        body: B,
+    ) -> Result<(), Error>
+    where
+        B: Body,
+        <B as Body>::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let mut body_stream = BodyStream::new(Box::pin(body));
+        loop {
+            match body_stream.next().await {
+                Some(Ok(frame)) if frame.is_data() => {
+                    let mut data = frame
+                        .into_data()
+                        .ok()
+                        .expect("Non-data frame in a branch guarded by is_data");
+                    let buf = data.copy_to_bytes(data.remaining());
+                    stream.send_data(buf).await?;
+                }
+                Some(Ok(frame)) if frame.is_trailers() => {
+                    let trailers = frame
+                        .into_trailers()
+                        .ok()
+                        .expect("Non-trailers frame in a branch guarded by is_trailers");
+                    stream.send_trailers(trailers).await?;
+                }
+                Some(Ok(_)) => unimplemented!("Unexpected frame type"),
+                Some(Err(error)) => {
+                    return Err(Error::Body(Box::new(error)));
+                }
+                None => break,
+            }
+        }
+        Ok(())
     }
 }
 
@@ -162,6 +209,10 @@ pub enum Error {
     /// HTTP/3 stream-level error.
     #[error("Stream error: {0}")]
     Stream(#[from] StreamError),
+
+    /// Error in processing the body.
+    #[error("Body error: {0}")]
+    Body(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Helper trait to wrap connection operations with cancellation on idle.

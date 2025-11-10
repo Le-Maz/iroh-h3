@@ -676,7 +676,9 @@ name = "example"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "http",
+ "http-body-util",
  "iroh",
  "iroh-h3-axum",
  "iroh-h3-client",
@@ -1451,6 +1453,7 @@ dependencies = [
  "h3",
  "http",
  "http-body",
+ "http-body-util",
  "iroh",
  "iroh-h3",
  "thiserror 2.0.17",

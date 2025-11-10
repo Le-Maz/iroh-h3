@@ -1,5 +1,7 @@
-use axum::{body::Bytes, routing::get};
+use axum::routing::get;
+use bytes::Bytes;
 use http::Request;
+use http_body_util::Empty;
 use iroh::{Endpoint, discovery::dns::DnsDiscovery};
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
@@ -30,7 +32,7 @@ async fn main() {
 
     let request = Request::builder()
         .uri(format!("https://{}/ping", endpoint_1.id()))
-        .body(Bytes::new())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let mut response = client.send(request).await.unwrap();
