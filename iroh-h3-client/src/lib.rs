@@ -60,11 +60,18 @@ impl Deref for Response {
 impl Response {
     pub async fn body_bytes(&mut self) -> Result<Bytes, Error> {
         let mut buf = Vec::new();
-        while let Some(mut response_body) = self.conn.process(self.stream.recv_data()).await? {
-            while response_body.has_remaining() {
-                let chunk = response_body.chunk();
-                buf.extend_from_slice(chunk);
-                response_body.advance(chunk.len());
+        loop {
+            match self.conn.process(self.stream.recv_data()).await {
+                Ok(Some(mut frame)) => {
+                    while frame.has_remaining() {
+                        let chunk = frame.chunk();
+                        buf.extend_from_slice(chunk);
+                        frame.advance(chunk.len());
+                    }
+                }
+                Ok(None) => break,
+                Err(Error::Connection(error)) if error.is_h3_no_error() => break,
+                Err(error) => return Err(error),
             }
         }
         Ok(Bytes::copy_from_slice(&buf))
