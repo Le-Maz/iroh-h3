@@ -3,8 +3,6 @@ use std::convert::Infallible;
 use axum::{body::Body, response::IntoResponse, routing::get};
 use bytes::Bytes;
 use futures::{StreamExt, stream::repeat};
-use http::Request;
-use http_body_util::Empty;
 use iroh::{Endpoint, discovery::dns::DnsDiscovery};
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
@@ -37,12 +35,8 @@ async fn main() {
     endpoint_2.online().await;
     let client = IrohH3Client::new(endpoint_2, ALPN.into());
 
-    let request = Request::builder()
-        .uri(format!("https://{}/streaming-ping", endpoint_1.id()))
-        .body(Empty::<Bytes>::new())
-        .unwrap();
-
-    let mut response = client.send(request).await.unwrap();
+    let uri = format!("iroh+h3://{}/streaming-ping", endpoint_1.id());
+    let mut response = client.get(uri).send().await.unwrap();
     println!("Sent PING!");
     let mut response_body_stream = response.body_stream();
     while let Some(data) = response_body_stream.next().await.transpose().unwrap() {

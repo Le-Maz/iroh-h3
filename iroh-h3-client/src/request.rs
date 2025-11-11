@@ -1,0 +1,126 @@
+use bytes::Bytes;
+use http::request::Builder;
+use http_body::Body;
+use http_body_util::Empty;
+
+use crate::{IrohH3Client, error::Error, response::Response};
+
+/// A builder for constructing HTTP/3 requests.
+///
+/// This struct provides methods to configure and send HTTP/3 requests using the [`IrohH3Client`].
+/// It allows setting headers, extensions, and the request body.
+#[derive(Debug)]
+#[must_use]
+pub struct RequestBuilder<'client> {
+    pub(crate) inner: Builder,
+    pub(crate) client: &'client IrohH3Client,
+}
+
+impl<'client> RequestBuilder<'client> {
+    /// Adds an extension to the request.
+    ///
+    /// Extensions are arbitrary data that can be associated with the request.
+    #[inline]
+    pub fn extension<T>(mut self, extension: T) -> Self
+    where
+        T: Clone + std::any::Any + Send + Sync + 'static,
+    {
+        self.inner = self.inner.extension(extension);
+        self
+    }
+
+    /// Adds a header to the request.
+    ///
+    /// # Parameters
+    /// - `key`: The name of the header.
+    /// - `value`: The value of the header.
+    #[inline]
+    pub fn header<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: TryInto<http::HeaderName>,
+        <K as TryInto<http::HeaderName>>::Error: Into<http::Error>,
+        V: TryInto<http::HeaderValue>,
+        <V as TryInto<http::HeaderValue>>::Error: Into<http::Error>,
+    {
+        self.inner = self.inner.header(key, value);
+        self
+    }
+
+    /// Sets the body of the request and finalizes the builder.
+    ///
+    /// # Parameters
+    /// - `body`: The body of the request.
+    ///
+    /// # Returns
+    /// A [`Request`] object containing the configured request.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if the request cannot be constructed.
+    #[inline]
+    pub fn body<B>(self, body: B) -> Result<Request<'client, B>, Error>
+    where
+        B: Body,
+        http::Error: From<B::Error>,
+    {
+        let request = self.inner.body(body)?;
+        Ok(Request {
+            inner: request,
+            client: self.client,
+        })
+    }
+
+    /// Sends the request with an empty body.
+    ///
+    /// # Returns
+    /// A [`Response`] object representing the server's response.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if the request fails to send or the response cannot be received.
+    #[inline]
+    pub async fn send(self) -> Result<Response, Error> {
+        self.body(Empty::<Bytes>::new())?.send().await
+    }
+}
+
+impl<'client> TryFrom<RequestBuilder<'client>> for http::Request<Empty<Bytes>> {
+    type Error = Error;
+
+    /// Converts the builder into an HTTP request with an empty body.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if the request cannot be constructed.
+    #[inline]
+    fn try_from(builder: RequestBuilder<'client>) -> Result<Self, Self::Error> {
+        let request = builder.inner.body(Empty::<Bytes>::new())?;
+        Ok(request)
+    }
+}
+
+/// Represents an HTTP/3 request constructed using the [`RequestBuilder`].
+///
+/// This struct encapsulates the request and provides a method to send it
+/// using the associated [`IrohH3Client`].
+#[must_use]
+pub struct Request<'client, T> {
+    inner: http::Request<T>,
+    client: &'client IrohH3Client,
+}
+
+impl<'client, B> Request<'client, B>
+where
+    B: Body,
+    http::Error: From<B::Error>,
+{
+    /// Sends the HTTP/3 request and returns the server's response.
+    ///
+    /// # Returns
+    /// A [`Response`] object representing the server's response.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if the request fails to send or the response cannot be received.
+    #[inline]
+    pub async fn send(self) -> Result<Response, Error> {
+        let response = self.client.send(self.inner).await?;
+        Ok(response)
+    }
+}
