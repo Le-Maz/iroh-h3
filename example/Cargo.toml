@@ -8,7 +8,9 @@ publish = false
 axum = "0.8.6"
 bytes = "1.10.1"
 futures = "0.3.31"
+futures-lite = "2.6.1"
 http = "1.3.1"
+http-body = "1.0.1"
 http-body-util = "0.1.3"
 iroh = "0.95.1"
 iroh-h3-axum = { version = "0.1.0", path = "../iroh-h3-axum" }
