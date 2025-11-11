@@ -41,7 +41,7 @@ impl IrohAxum {
     /// - Wraps the incoming QUIC stream as an Axum-compatible body.
     /// - Calls the [`Router`] service to obtain a response.
     /// - Streams the response body back over the QUIC stream.
-    async fn handle_request(&self, request: http::Request<()>, stream: H3ServerRequestStream) {
+    fn handle_request(&self, request: http::Request<()>, stream: H3ServerRequestStream) {
         let router = self.router.clone();
 
         tokio::spawn(async move {
@@ -101,7 +101,7 @@ impl ProtocolHandler for IrohAxum {
                 .await
                 .map_err(AcceptError::from_err)?;
 
-            self.handle_request(request, stream).await;
+            self.handle_request(request, stream);
         }
 
         Ok(())
