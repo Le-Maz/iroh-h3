@@ -49,7 +49,7 @@ async fn headers() {
     };
     let request = client.post(&uri).json(&message).unwrap();
 
-    let mut response = request.clone().send().await.unwrap();
+    let mut response = request.send().await.unwrap();
     assert_eq!(
         response.headers.get("Content-Type").unwrap(),
         "application/json"
