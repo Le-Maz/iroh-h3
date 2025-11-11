@@ -1,5 +1,4 @@
 use axum::{Json, response::IntoResponse, routing::post};
-use http_body_util::Full;
 use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
@@ -48,19 +47,13 @@ async fn headers() {
     let message = Message {
         message: PING.into(),
     };
-    let json = serde_json::to_string(&message).unwrap();
-    let request = client
-        .post(&uri)
-        .header("Content-Type", "application/json")
-        .body(Full::new(json.as_bytes()))
-        .unwrap();
+    let request = client.post(&uri).json(&message).unwrap();
 
     let mut response = request.clone().send().await.unwrap();
     assert_eq!(
         response.headers.get("Content-Type").unwrap(),
         "application/json"
     );
-    let response_bytes = response.body_bytes().await.unwrap();
-    let response_message: Message = serde_json::from_slice(&response_bytes).unwrap();
+    let response_message: Message = response.json().await.unwrap();
     assert_eq!(response_message.message, PONG);
 }

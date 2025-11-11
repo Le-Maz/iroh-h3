@@ -63,7 +63,7 @@ async fn streaming_bodies() {
     let stream = repeat_with(|| Ok::<_, Infallible>(frame()));
     let body = StreamBody::new(stream.take(PING_COUNT));
     let mut response = client.post(uri).body(body).unwrap().send().await.unwrap();
-    let mut body_stream = response.body_stream();
+    let mut body_stream = response.bytes_stream();
     let mut counter = 0;
     while let Some(chunk) = body_stream.next().await.transpose().unwrap() {
         println!("Client received data");

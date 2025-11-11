@@ -2,6 +2,10 @@ use bytes::Bytes;
 use http::request::Builder;
 use http_body::Body;
 use http_body_util::Empty;
+#[cfg(feature = "json")]
+use http_body_util::Full;
+#[cfg(feature = "json")]
+use serde::Serialize;
 
 use crate::{IrohH3Client, error::Error, response::Response};
 
@@ -63,6 +67,34 @@ impl RequestBuilder {
         http::Error: From<B::Error>,
     {
         let request = self.inner.body(body)?;
+        Ok(Request {
+            inner: request,
+            client: self.client,
+        })
+    }
+
+    /// Sets the body of the request to JSON-serialized data and finalizes the builder.
+    ///
+    /// # Parameters
+    /// - `data`: A reference to the value to serialize as JSON.
+    ///
+    /// # Returns
+    /// A [`Request`] object containing the configured request with a JSON body.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if the data cannot be serialized to JSON or if the request cannot be constructed.
+    #[cfg(feature = "json")]
+    pub fn json<T: Serialize>(self, data: &T) -> Result<Request<Full<Bytes>>, Error> {
+        use http::{HeaderValue, header::CONTENT_TYPE};
+
+        use crate::error::JsonError;
+        const MIME_JSON: HeaderValue = HeaderValue::from_static("application/json");
+
+        let request = self
+            .inner
+            .header(CONTENT_TYPE, MIME_JSON)
+            .body(serde_json::to_vec(data).map_err(JsonError::from)?.into())?;
+
         Ok(Request {
             inner: request,
             client: self.client,

@@ -38,7 +38,7 @@ async fn main() {
     let uri = format!("iroh+h3://{}/streaming-ping", endpoint_1.id());
     let mut response = client.get(uri).send().await.unwrap();
     println!("Sent PING!");
-    let mut response_body_stream = response.body_stream();
+    let mut response_body_stream = response.bytes_stream();
     while let Some(data) = response_body_stream.next().await.transpose().unwrap() {
         assert_eq!(PONG.as_bytes(), data);
         println!("Received a message: {}", String::from_utf8_lossy(&data));

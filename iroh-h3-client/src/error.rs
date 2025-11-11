@@ -1,6 +1,8 @@
 use std::{convert::Infallible, sync::Arc};
 
 use h3::error::{ConnectionError, StreamError};
+#[cfg(feature = "json")]
+use http::HeaderValue;
 use iroh::{KeyParsingError, endpoint::ConnectError};
 
 /// Errors that can occur while sending or receiving HTTP/3 requests with [`IrohH3Client`].
@@ -30,8 +32,22 @@ pub enum Error {
     #[error("Stream error: {0}")]
     Stream(#[from] StreamError),
 
+    #[cfg(feature = "json")]
+    #[error("JSON error: {0}")]
+    Json(#[from] JsonError),
+
     #[error("{0}")]
     Shared(#[from] Arc<Self>),
+}
+
+#[cfg(feature = "json")]
+#[derive(Debug, thiserror::Error)]
+pub enum JsonError {
+    #[error("Serde error: {0}")]
+    Serde(#[from] serde_json::Error),
+
+    #[error("Wrong content type: {0:?}")]
+    WrongContentType(Option<HeaderValue>),
 }
 
 impl From<Infallible> for Error {

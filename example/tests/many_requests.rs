@@ -49,7 +49,7 @@ async fn many_requests() {
     let mut prev = Instant::now();
     for _ in 0..PING_COUNT {
         let mut response = request.clone().send().await.unwrap();
-        let response_bytes = response.body_bytes().await.unwrap();
+        let response_bytes = response.bytes().await.unwrap();
         assert_eq!(response_bytes, PONG);
 
         let now = Instant::now();

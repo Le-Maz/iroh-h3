@@ -5,6 +5,8 @@ use std::task::Poll;
 use bytes::{Buf, Bytes};
 use futures::Stream;
 use iroh_h3::{BidiStream, OpenStreams};
+#[cfg(feature = "json")]
+use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 
@@ -34,7 +36,7 @@ impl Response {
     ///
     /// # Errors
     /// Returns an [`Error`] if a connection or stream error occurs while reading.
-    pub async fn body_bytes(&mut self) -> Result<Bytes, Error> {
+    pub async fn bytes(&mut self) -> Result<Bytes, Error> {
         let mut buf = Vec::new();
 
         loop {
@@ -55,6 +57,38 @@ impl Response {
         Ok(Bytes::from(buf))
     }
 
+    /// Reads the entire response body and deserializes it from JSON.
+    ///
+    /// This method first verifies that the response `Content-Type` header is
+    /// `application/json`, then reads the full response body into memory and
+    /// attempts to deserialize it into the specified type.
+    ///
+    /// # Type Parameters
+    /// - `T`: The type to deserialize the JSON body into. Must implement [`DeserializeOwned`].
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if:
+    /// - The `Content-Type` header is missing or not `application/json`.
+    /// - The body cannot be read from the stream.
+    /// - The body cannot be parsed as valid JSON for type `T`.
+    #[cfg(feature = "json")]
+    pub async fn json<T: DeserializeOwned>(&mut self) -> Result<T, Error> {
+        use http::{HeaderValue, header::CONTENT_TYPE};
+
+        use crate::error::JsonError;
+        const MIME_JSON: HeaderValue = HeaderValue::from_static("application/json");
+
+        let content_type = self.headers.get(CONTENT_TYPE);
+        if content_type != Some(&MIME_JSON) {
+            use crate::error::JsonError;
+
+            return Err(JsonError::WrongContentType(content_type.cloned()).into());
+        }
+
+        let bytes = self.bytes().await?;
+        Ok(serde_json::from_slice(&bytes).map_err(JsonError::from)?)
+    }
+
     /// Returns a stream of [`Bytes`] representing the response body.
     ///
     /// This method provides an asynchronous stream of chunks of the response body.
@@ -67,12 +101,12 @@ impl Response {
     /// # Example
     /// ```rust,ignore
     /// let mut response = client.send(request).await?;
-    /// let mut body_stream = response.body_stream();
+    /// let mut body_stream = response.stream();
     /// while let Some(data) = body_stream.next().await.transpose()? {
     ///     println!("Received frame: {:?}", data);
     /// }
     /// ```
-    pub fn body_stream(&mut self) -> impl Stream<Item = Result<Bytes, Error>> {
+    pub fn bytes_stream(&mut self) -> impl Stream<Item = Result<Bytes, Error>> {
         struct StreamingBody<'response> {
             response: &'response mut Response,
         }
