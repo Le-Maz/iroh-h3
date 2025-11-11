@@ -4,9 +4,9 @@ use std::task::Poll;
 
 use bytes::{Buf, Bytes};
 use futures::Stream;
-use iroh_h3::{BidiStream, Connection as IrohH3Connection, OpenStreams};
+use iroh_h3::{BidiStream, OpenStreams};
 
-use crate::{ConnectionProcess, error::Error};
+use crate::error::Error;
 
 /// Represents an HTTP/3 response received over an [`iroh`] connection.
 ///
@@ -15,7 +15,6 @@ use crate::{ConnectionProcess, error::Error};
 pub struct Response {
     pub(crate) inner: http::response::Parts,
     pub(crate) stream: h3::client::RequestStream<BidiStream<Bytes>, Bytes>,
-    pub(crate) conn: h3::client::Connection<IrohH3Connection, Bytes>,
     pub(crate) _sender: h3::client::SendRequest<OpenStreams, Bytes>,
 }
 
@@ -39,7 +38,7 @@ impl Response {
         let mut buf = Vec::new();
 
         loop {
-            match self.conn.process(self.stream.recv_data()).await {
+            match self.stream.recv_data().await {
                 Ok(Some(mut frame)) => {
                     while frame.has_remaining() {
                         let chunk = frame.chunk();
@@ -48,8 +47,8 @@ impl Response {
                     }
                 }
                 Ok(None) => break,
-                Err(Error::Connection(err)) if err.is_h3_no_error() => break,
-                Err(e) => return Err(e),
+                Err(err) if err.is_h3_no_error() => break,
+                Err(err) => return Err(err.into()),
             }
         }
 
@@ -86,7 +85,6 @@ impl Response {
                 cx: &mut std::task::Context<'_>,
             ) -> Poll<Option<Self::Item>> {
                 let poll_data = self.response.stream.poll_recv_data(cx);
-                let poll_close = self.response.conn.poll_close(cx);
                 if let Poll::Ready(result) = poll_data {
                     let item = match result.transpose() {
                         Some(Ok(mut frame)) => Some(Ok(frame.copy_to_bytes(frame.remaining()))),
@@ -94,12 +92,6 @@ impl Response {
                         _ => None,
                     };
                     return Poll::Ready(item);
-                }
-                if let Poll::Ready(result) = poll_close {
-                    if result.is_h3_no_error() {
-                        return Poll::Ready(None);
-                    }
-                    return Poll::Ready(Some(Err(result.into())));
                 }
                 Poll::Pending
             }

@@ -2,17 +2,21 @@ pub mod error;
 pub mod request;
 pub mod response;
 
-use std::future::Future;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 
 use bytes::{Buf, Bytes};
-use futures::StreamExt;
-use h3::client::RequestStream;
+use futures::future::Shared;
+use futures::{FutureExt, StreamExt};
+use h3::client::{RequestStream, SendRequest};
 use http::request::Builder;
 use http::{Method, Uri, Version};
 use http_body::Body;
 use http_body_util::BodyStream;
 use iroh::{Endpoint, EndpointId};
-use iroh_h3::{BidiStream, Connection as IrohH3Connection};
+use iroh_h3::{BidiStream, Connection as IrohH3Connection, OpenStreams};
 
 use crate::error::Error;
 use crate::request::RequestBuilder;
@@ -37,16 +41,36 @@ use crate::response::Response;
 /// let body = response.body_bytes().await?;
 /// println!("Response body: {:?}", body);
 /// ```
-#[derive(Debug)]
+#[derive(Clone)]
+#[repr(transparent)]
 pub struct IrohH3Client {
+    inner: Arc<ClientInner>,
+}
+
+impl Debug for IrohH3Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IrohH3Client")
+            .field("endpoint", &self.inner.endpoint)
+            .field("alpn", &self.inner.alpn)
+            .field("connections", &"...")
+            .finish()
+    }
+}
+
+struct ClientInner {
     endpoint: Endpoint,
     alpn: Vec<u8>,
+    sender_cache: RwLock<HashMap<EndpointId, CachedSender>>,
 }
+
+type Sender = SendRequest<OpenStreams, Bytes>;
+type SenderFuture = Pin<Box<dyn Future<Output = Result<Sender, Arc<Error>>> + Send>>;
+type CachedSender = Shared<SenderFuture>;
 
 macro_rules! http_method {
     ($name:ident, $variant:expr) => {
         #[inline]
-        pub fn $name<'client, U>(&'client self, uri: U) -> RequestBuilder<'client>
+        pub fn $name<U>(&self, uri: U) -> RequestBuilder
         where
             U: TryInto<Uri>,
             http::Error: From<<U as TryInto<Uri>>::Error>,
@@ -59,7 +83,13 @@ macro_rules! http_method {
 impl IrohH3Client {
     /// Creates a new [`IrohH3Client`] using the given [`iroh::Endpoint`] and ALPN string.
     pub fn new(endpoint: Endpoint, alpn: Vec<u8>) -> Self {
-        Self { endpoint, alpn }
+        let inner = ClientInner {
+            endpoint,
+            alpn,
+            sender_cache: Default::default(),
+        }
+        .into();
+        Self { inner }
     }
 
     /// Extracts the [`EndpointId`] from the authority component of a URI.
@@ -74,18 +104,14 @@ impl IrohH3Client {
     }
 
     /// Creates a request builder bound to this client
-    pub fn request<'client, U>(
-        &'client self,
-        method: http::Method,
-        uri: U,
-    ) -> RequestBuilder<'client>
+    pub fn request<U>(&self, method: http::Method, uri: U) -> RequestBuilder
     where
         U: TryInto<Uri>,
         http::Error: From<<U as TryInto<Uri>>::Error>,
     {
         RequestBuilder {
             inner: Builder::new().method(method).uri(uri),
-            client: self,
+            client: self.clone(),
         }
     }
 
@@ -95,6 +121,102 @@ impl IrohH3Client {
     http_method!(put, Method::PUT);
     http_method!(patch, Method::PATCH);
     http_method!(delete, Method::DELETE);
+
+    /// Retrieves or establishes an HTTP/3 sender (`SendRequest`) for the specified peer.
+    ///
+    /// This method checks an internal connection cache for an existing sender associated
+    /// with the given `peer_id`. If one is already being established or is available,
+    /// the cached future is awaited and returned.
+    ///
+    /// If no active or pending sender exists, a new HTTP/3 connection is initiated via
+    /// the underlying [`Endpoint`], and the resulting `SendRequest` handle is stored in
+    /// the cache as a shared future. This ensures that concurrent calls to `get_sender`
+    /// for the same peer share the same connection setup process rather than initiating
+    /// redundant connections.
+    ///
+    /// Once the connection becomes idle, it is automatically removed from the cache.
+    ///
+    /// # Concurrency
+    ///
+    /// - Multiple simultaneous calls for the same `peer_id` will await the same
+    ///   shared future, ensuring only a single connection attempt is made.
+    /// - The cache is internally synchronized via a read–write lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if:
+    /// - The connection attempt fails.
+    /// - The HTTP/3 handshake fails.
+    /// - The cached sender future resolves with an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `peer_id` — The remote peer endpoint to connect to or reuse a connection with.
+    ///
+    /// # Returns
+    ///
+    /// A [`SendRequest<OpenStreams, Bytes>`] handle for sending HTTP/3 requests to
+    /// the specified peer.
+    async fn get_sender(
+        &self,
+        peer_id: EndpointId,
+    ) -> Result<SendRequest<OpenStreams, Bytes>, Error> {
+        let cached_sender = self
+            .inner
+            .sender_cache
+            .read()
+            .unwrap()
+            .get(&peer_id)
+            .cloned();
+
+        if let Some(sender) = cached_sender
+            && let Ok(sender) = sender.await
+        {
+            return Ok(sender);
+        }
+
+        let self_clone = self.clone();
+        let future = Box::pin(async move {
+            let conn = self_clone
+                .inner
+                .endpoint
+                .connect(peer_id, &self_clone.inner.alpn)
+                .await
+                .map_err(Error::from)
+                .map_err(Arc::new)?;
+            let conn = IrohH3Connection::new(conn);
+            let (mut conn, sender) = h3::client::new(conn)
+                .await
+                .map_err(Error::from)
+                .map_err(Arc::new)?;
+            tokio::spawn(async move {
+                conn.wait_idle().await;
+                self_clone
+                    .inner
+                    .sender_cache
+                    .write()
+                    .unwrap()
+                    .remove(&peer_id);
+            });
+            Ok(sender)
+        }) as SenderFuture;
+
+        let shared = future.shared();
+
+        self.inner
+            .sender_cache
+            .write()
+            .unwrap()
+            .insert(peer_id, shared.clone());
+
+        match shared.await {
+            Ok(sender) => Ok(sender),
+            Err(error) => {
+                self.inner.sender_cache.write().unwrap().remove(&peer_id);
+                Err(error.into())
+            }
+        }
+    }
 
     /// Sends an HTTP/3 request to the peer identified in the request URI.
     ///
@@ -119,28 +241,24 @@ impl IrohH3Client {
         *request.version_mut() = Version::HTTP_3;
 
         let peer_id = Self::peer_id(request.uri())?;
-        let conn = self.endpoint.connect(peer_id, &self.alpn).await?;
-
-        let conn = IrohH3Connection::new(conn);
-        let (mut conn, mut sender) = h3::client::new(conn).await?;
+        let mut sender = self.get_sender(peer_id).await?;
 
         let (parts, body) = request.into_parts();
         let req = http::Request::from_parts(parts, ());
 
-        let mut stream = conn.process(sender.send_request(req)).await?;
+        let mut stream = sender.send_request(req).await?;
 
-        conn.process(Self::send_body(&mut stream, body)).await?;
+        Self::send_body(&mut stream, body).await?;
 
         stream.finish().await?;
 
         // Receive the initial response headers.
-        let response = conn.process(stream.recv_response()).await?;
+        let response = stream.recv_response().await?;
         let inner = response.into_parts().0;
 
         Ok(Response {
             inner,
             stream,
-            conn,
             _sender: sender,
         })
     }
@@ -182,34 +300,5 @@ impl IrohH3Client {
             }
         }
         Ok(())
-    }
-}
-
-/// Helper trait to wrap connection operations with cancellation on idle.
-///
-/// This allows the connection to await an operation (like sending a request or
-/// reading a response) while simultaneously listening for connection's status changes.
-pub(crate) trait ConnectionProcess {
-    /// Runs a future tied to a connection and converts errors into [`Error`].
-    fn process<T, E>(
-        &mut self,
-        future: impl Future<Output = Result<T, E>>,
-    ) -> impl Future<Output = Result<T, Error>>
-    where
-        Error: From<E>;
-}
-
-impl ConnectionProcess for h3::client::Connection<IrohH3Connection, Bytes> {
-    async fn process<T, E>(
-        &mut self,
-        future: impl Future<Output = Result<T, E>>,
-    ) -> Result<T, Error>
-    where
-        Error: From<E>,
-    {
-        tokio::select! {
-            result = future => Ok(result?),
-            result = self.wait_idle() => Err(result.into()),
-        }
     }
 }

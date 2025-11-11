@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 
 use h3::error::{ConnectionError, StreamError};
 use iroh::{KeyParsingError, endpoint::ConnectError};
@@ -29,6 +29,9 @@ pub enum Error {
     /// HTTP/3 stream-level error.
     #[error("Stream error: {0}")]
     Stream(#[from] StreamError),
+
+    #[error("{0}")]
+    Shared(#[from] Arc<Self>),
 }
 
 impl From<Infallible> for Error {

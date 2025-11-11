@@ -11,12 +11,12 @@ use crate::{IrohH3Client, error::Error, response::Response};
 /// It allows setting headers, extensions, and the request body.
 #[derive(Debug)]
 #[must_use]
-pub struct RequestBuilder<'client> {
+pub struct RequestBuilder {
     pub(crate) inner: Builder,
-    pub(crate) client: &'client IrohH3Client,
+    pub(crate) client: IrohH3Client,
 }
 
-impl<'client> RequestBuilder<'client> {
+impl RequestBuilder {
     /// Adds an extension to the request.
     ///
     /// Extensions are arbitrary data that can be associated with the request.
@@ -57,7 +57,7 @@ impl<'client> RequestBuilder<'client> {
     /// # Errors
     /// Returns an [`Error`] if the request cannot be constructed.
     #[inline]
-    pub fn body<B>(self, body: B) -> Result<Request<'client, B>, Error>
+    pub fn body<B>(self, body: B) -> Result<Request<B>, Error>
     where
         B: Body,
         http::Error: From<B::Error>,
@@ -82,7 +82,7 @@ impl<'client> RequestBuilder<'client> {
     }
 }
 
-impl<'client> TryFrom<RequestBuilder<'client>> for http::Request<Empty<Bytes>> {
+impl TryFrom<RequestBuilder> for http::Request<Empty<Bytes>> {
     type Error = Error;
 
     /// Converts the builder into an HTTP request with an empty body.
@@ -90,7 +90,7 @@ impl<'client> TryFrom<RequestBuilder<'client>> for http::Request<Empty<Bytes>> {
     /// # Errors
     /// Returns an [`Error`] if the request cannot be constructed.
     #[inline]
-    fn try_from(builder: RequestBuilder<'client>) -> Result<Self, Self::Error> {
+    fn try_from(builder: RequestBuilder) -> Result<Self, Self::Error> {
         let request = builder.inner.body(Empty::<Bytes>::new())?;
         Ok(request)
     }
@@ -101,12 +101,13 @@ impl<'client> TryFrom<RequestBuilder<'client>> for http::Request<Empty<Bytes>> {
 /// This struct encapsulates the request and provides a method to send it
 /// using the associated [`IrohH3Client`].
 #[must_use]
-pub struct Request<'client, T> {
+#[derive(Debug, Clone)]
+pub struct Request<T> {
     inner: http::Request<T>,
-    client: &'client IrohH3Client,
+    client: IrohH3Client,
 }
 
-impl<'client, B> Request<'client, B>
+impl<B> Request<B>
 where
     B: Body,
     http::Error: From<B::Error>,
