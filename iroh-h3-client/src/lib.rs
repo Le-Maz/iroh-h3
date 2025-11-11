@@ -265,12 +265,7 @@ impl IrohH3Client {
     /// - `Ok(SendRequest<OpenStreams, Bytes>)` on successful connection and
     ///   HTTP/3 handshake.
     /// - `Err(Arc<Error>)` if any step of the setup fails.
-    fn create_connection(
-        &self,
-        peer_id: EndpointId,
-    ) -> Shared<
-        Pin<Box<dyn Future<Output = Result<SendRequest<OpenStreams, Bytes>, Arc<Error>>> + Send>>,
-    > {
+    fn create_connection(&self, peer_id: EndpointId) -> Shared<SenderFuture> {
         let self_clone = self.clone();
         let future = Box::pin(async move {
             let conn = self_clone
