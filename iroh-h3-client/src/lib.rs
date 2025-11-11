@@ -124,43 +124,49 @@ impl IrohH3Client {
 
     /// Retrieves or establishes an HTTP/3 sender (`SendRequest`) for the specified peer.
     ///
-    /// This method checks an internal connection cache for an existing sender associated
-    /// with the given `peer_id`. If one is already being established or is available,
-    /// the cached future is awaited and returned.
+    /// This method first attempts an **optimistic cache lookup** using a read-only
+    /// lock. If an active or pending connection already exists, it reuses the
+    /// existing shared future. Otherwise, it proceeds to coordinate the creation
+    /// of a new connection using a write lock.
     ///
-    /// If no active or pending sender exists, a new HTTP/3 connection is initiated via
-    /// the underlying [`Endpoint`], and the resulting `SendRequest` handle is stored in
-    /// the cache as a shared future. This ensures that concurrent calls to `get_sender`
-    /// for the same peer share the same connection setup process rather than initiating
-    /// redundant connections.
+    /// The method ensures that concurrent calls for the same peer share the same
+    /// in-progress connection setup, avoiding redundant HTTP/3 handshakes.
     ///
     /// Once the connection becomes idle, it is automatically removed from the cache.
     ///
     /// # Concurrency
     ///
-    /// - Multiple simultaneous calls for the same `peer_id` will await the same
-    ///   shared future, ensuring only a single connection attempt is made.
-    /// - The cache is internally synchronized via a read–write lock.
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`Error`] if:
-    /// - The connection attempt fails.
-    /// - The HTTP/3 handshake fails.
-    /// - The cached sender future resolves with an error.
-    ///
-    /// # Arguments
-    ///
-    /// * `peer_id` — The remote peer endpoint to connect to or reuse a connection with.
-    ///
-    /// # Returns
-    ///
-    /// A [`SendRequest<OpenStreams, Bytes>`] handle for sending HTTP/3 requests to
-    /// the specified peer.
+    /// - Multiple simultaneous calls for the same `peer_id` await the same shared
+    ///   future, ensuring only a single connection attempt is made.
+    /// - The cache is protected by a read–write lock to support safe concurrent access.
     async fn get_sender(
         &self,
         peer_id: EndpointId,
     ) -> Result<SendRequest<OpenStreams, Bytes>, Error> {
+        if let Some(sender) = self.try_get_cached_sender(peer_id).await {
+            return Ok(sender);
+        }
+        self.coordinate_connection_setup(peer_id).await
+    }
+
+    /// Attempts an optimistic cache lookup for an existing sender using a read-only lock.
+    ///
+    /// This method acquires a **read** guard on the sender cache to check whether a
+    /// shared future for the given `peer_id` already exists. If found, it awaits the
+    /// cached future and returns the resulting `SendRequest` if the future resolves
+    /// successfully.
+    ///
+    /// If no entry exists, or the cached future fails, the caller is expected to
+    /// proceed with establishing a new connection.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(sender)` if a valid cached sender is found.
+    /// - `None` if no cached sender exists or it failed.
+    async fn try_get_cached_sender(
+        &self,
+        peer_id: EndpointId,
+    ) -> Option<SendRequest<OpenStreams, Bytes>> {
         let cached_sender = self
             .inner
             .sender_cache
@@ -169,12 +175,102 @@ impl IrohH3Client {
             .get(&peer_id)
             .cloned();
 
-        if let Some(sender) = cached_sender
-            && let Ok(sender) = sender.await
-        {
-            return Ok(sender);
+        if let Some(sender_future) = cached_sender {
+            match sender_future.await {
+                Ok(sender) => return Some(sender),
+                Err(_) => {
+                    // Ignore and let caller handle reconnect logic
+                }
+            }
         }
+        None
+    }
 
+    /// Coordinates connection setup for a given peer by acquiring a write lock on the cache.
+    ///
+    /// This function handles synchronization between concurrent tasks that may attempt
+    /// to connect to the same peer simultaneously. It operates in a loop to ensure that:
+    ///
+    /// - If another task has already inserted a shared connection future into the cache,
+    ///   this call will reuse it and await the result.
+    /// - If no existing connection future is present, a new one is created via
+    ///   [`create_connection`] and inserted into the cache.
+    /// - If a connection attempt fails, the cache entry is removed and the loop retries.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(sender)` on successful connection.
+    /// - `Err(error)` if all attempts fail.
+    async fn coordinate_connection_setup(
+        &self,
+        peer_id: EndpointId,
+    ) -> Result<SendRequest<OpenStreams, Bytes>, Error> {
+        loop {
+            enum Action {
+                TryForeign(Shared<SenderFuture>),
+                CreateOwn(Shared<SenderFuture>),
+            }
+
+            let action = {
+                let mut cache = self.inner.sender_cache.write().unwrap();
+                if let Some(sender_future) = cache.get(&peer_id).cloned() {
+                    Action::TryForeign(sender_future)
+                } else {
+                    let sender_future = self.create_connection(peer_id);
+                    cache.insert(peer_id, sender_future.clone());
+                    Action::CreateOwn(sender_future)
+                }
+            };
+
+            match action {
+                Action::TryForeign(shared) => {
+                    if let Ok(sender) = shared.await {
+                        return Ok(sender);
+                    }
+                }
+                Action::CreateOwn(shared) => {
+                    return match shared.await {
+                        Ok(sender) => Ok(sender),
+                        Err(error) => {
+                            self.inner.sender_cache.write().unwrap().remove(&peer_id);
+                            Err(error.into())
+                        }
+                    };
+                }
+            }
+        }
+    }
+
+    /// Initiates a new HTTP/3 connection to the specified peer and returns a
+    /// shared future resolving to a [`SendRequest<OpenStreams, Bytes>`].
+    ///
+    /// This function encapsulates the connection setup process for a given
+    /// `peer_id`. It performs the following steps:
+    ///
+    /// 1. Establishes a new QUIC connection to the target endpoint using the
+    ///    configured [`Endpoint`] and ALPN protocol.
+    /// 2. Wraps the QUIC connection in an [`IrohH3Connection`] and performs the
+    ///    HTTP/3 handshake via `h3::client::new`.
+    /// 3. Spawns a background task that waits for the connection to become idle
+    ///    (`conn.wait_idle()`) and removes the corresponding sender from the
+    ///    internal cache once it is no longer active.
+    ///
+    /// The returned future is converted into a [`Shared`] future so that
+    /// concurrent callers awaiting the same connection setup will all share
+    /// the same result, avoiding redundant connection attempts.
+    ///
+    /// # Returns
+    ///
+    /// A [`Shared`] future that resolves to either:
+    /// - `Ok(SendRequest<OpenStreams, Bytes>)` on successful connection and
+    ///   HTTP/3 handshake.
+    /// - `Err(Arc<Error>)` if any step of the setup fails.
+    fn create_connection(
+        &self,
+        peer_id: EndpointId,
+    ) -> Shared<
+        Pin<Box<dyn Future<Output = Result<SendRequest<OpenStreams, Bytes>, Arc<Error>>> + Send>>,
+    > {
         let self_clone = self.clone();
         let future = Box::pin(async move {
             let conn = self_clone
@@ -200,22 +296,8 @@ impl IrohH3Client {
             });
             Ok(sender)
         }) as SenderFuture;
-
         let shared = future.shared();
-
-        self.inner
-            .sender_cache
-            .write()
-            .unwrap()
-            .insert(peer_id, shared.clone());
-
-        match shared.await {
-            Ok(sender) => Ok(sender),
-            Err(error) => {
-                self.inner.sender_cache.write().unwrap().remove(&peer_id);
-                Err(error.into())
-            }
-        }
+        shared
     }
 
     /// Sends an HTTP/3 request to the peer identified in the request URI.

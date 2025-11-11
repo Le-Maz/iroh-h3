@@ -43,7 +43,7 @@ async fn streaming_ping(body: Body) -> impl IntoResponse {
 async fn streaming_bodies() {
     let endpoint_1 = Endpoint::builder().bind().await.unwrap();
     let app = axum::Router::new().route("/streaming-ping", post(streaming_ping));
-    let router = iroh::protocol::Router::builder(endpoint_1.clone())
+    let _router = iroh::protocol::Router::builder(endpoint_1.clone())
         .accept(ALPN, IrohAxum::new(app))
         .spawn();
 
@@ -71,5 +71,4 @@ async fn streaming_bodies() {
         counter += 1;
     }
     assert_eq!(counter, PONG_COUNT);
-    router.shutdown().await.unwrap();
 }

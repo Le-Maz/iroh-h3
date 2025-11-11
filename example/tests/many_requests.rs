@@ -29,7 +29,7 @@ async fn ping(body: Body) -> impl IntoResponse {
 async fn many_requests() {
     let endpoint_1 = Endpoint::builder().bind().await.unwrap();
     let app = axum::Router::new().route("/ping", post(ping));
-    let router = iroh::protocol::Router::builder(endpoint_1.clone())
+    let _router = iroh::protocol::Router::builder(endpoint_1.clone())
         .accept(ALPN, IrohAxum::new(app))
         .spawn();
 
@@ -64,15 +64,13 @@ async fn many_requests() {
     }
     join_set.join_all().await;
     println!("Request burst processed in {:?}", instant.elapsed());
-
-    router.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn request_burst() {
     let endpoint_1 = Endpoint::builder().bind().await.unwrap();
     let app = axum::Router::new().route("/ping", post(ping));
-    let router = iroh::protocol::Router::builder(endpoint_1.clone())
+    let _router = iroh::protocol::Router::builder(endpoint_1.clone())
         .accept(ALPN, IrohAxum::new(app))
         .spawn();
 
@@ -98,5 +96,4 @@ async fn request_burst() {
     }
     join_set.join_all().await;
     println!("Request burst processed in {:?}", instant.elapsed());
-    router.shutdown().await.unwrap();
 }
