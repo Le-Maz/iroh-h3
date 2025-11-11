@@ -7,18 +7,15 @@ use std::{
 use axum::{Router, body::HttpBody};
 use bytes::{Buf, Bytes};
 use futures::StreamExt;
-use h3::server::{self, RequestStream};
+use h3::server::{self, RequestResolver, RequestStream};
 use http::{Request, Response};
 use http_body::Frame;
 use iroh::protocol::{AcceptError, ProtocolHandler};
-use iroh_h3::{BidiStream, Connection as IrohH3Connection, RecvStream};
+use iroh_h3::{Connection as IrohH3Connection, RecvStream};
 use tower_service::Service;
 
 /// Type alias for the H3 server-side connection using iroh QUIC transport.
 type H3ServerConnection = server::Connection<IrohH3Connection, Bytes>;
-
-/// Type alias for an HTTP/3 bidirectional request stream over iroh QUIC.
-type H3ServerRequestStream = server::RequestStream<BidiStream<Bytes>, Bytes>;
 
 /// An HTTP/3 protocol handler that serves an [`axum::Router`] over iroh.
 ///
@@ -41,11 +38,13 @@ impl IrohAxum {
     /// - Wraps the incoming QUIC stream as an Axum-compatible body.
     /// - Calls the [`Router`] service to obtain a response.
     /// - Streams the response body back over the QUIC stream.
-    fn handle_request(&self, request: http::Request<()>, stream: H3ServerRequestStream) {
+    fn handle_request(&self, request_resolver: RequestResolver<IrohH3Connection, Bytes>) {
         let router = self.router.clone();
 
         tokio::spawn(async move {
             let mut router = router;
+
+            let (request, stream) = request_resolver.resolve_request().await?;
 
             // Extract request parts (headers, method, etc.).
             let parts = request.into_parts().0;
@@ -96,12 +95,7 @@ impl ProtocolHandler for IrohAxum {
         while let Some(request_resolver) =
             connection.accept().await.map_err(AcceptError::from_err)?
         {
-            let (request, stream) = request_resolver
-                .resolve_request()
-                .await
-                .map_err(AcceptError::from_err)?;
-
-            self.handle_request(request, stream);
+            self.handle_request(request_resolver);
         }
 
         Ok(())
