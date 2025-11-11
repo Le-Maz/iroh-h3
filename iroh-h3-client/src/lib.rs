@@ -30,7 +30,7 @@ use crate::response::Response;
 /// # Example
 ///
 /// ```rust,ignore
-/// let endpoint = iroh::Endpoint::builder().bind(0).await?;
+/// let endpoint = iroh::Endpoint::builder().bind().await?;
 /// let client = IrohH3Client::new(endpoint, b"h3".to_vec());
 ///
 /// let request = http::Request::builder()
