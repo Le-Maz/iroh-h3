@@ -1,41 +1,18 @@
-//! This module is largely derived from the
-//! [`hyperium/h3`](https://github.com/hyperium/h3) project,
-//! which is licensed under the MIT License.
+//! # iroh-h3: HTTP/3 support over iroh P2P connections
 //!
-//! The original license and copyright notice are reproduced below
-//! in accordance with the license terms.
+//! `iroh-h3` provides low-level integration for running HTTP/3 over
+//! [`iroh`](https://docs.rs/iroh) peer-to-peer QUIC connections.
+//! It implements the traits required by the `h3` crate on top of `iroh`
+//! connections and streams. This crate is intended for internal use in building
+//! HTTP/3 over P2P layers.
 //!
-//! ```text
-//! Copyright (c) 2020 h3 authors
+//! # License
 //!
-//! Permission is hereby granted, free of charge, to any
-//! person obtaining a copy of this software and associated
-//! documentation files (the "Software"), to deal in the
-//! Software without restriction, including without
-//! limitation the rights to use, copy, modify, merge,
-//! publish, distribute, sublicense, and/or sell copies of
-//! the Software, and to permit persons to whom the Software
-//! is furnished to do so, subject to the following
-//! conditions:
-//!
-//! The above copyright notice and this permission notice
-//! shall be included in all copies or substantial portions
-//! of the Software.
-//!
-//! THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-//! ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-//! TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-//! PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-//! SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-//! CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-//! OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-//! IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-//! DEALINGS IN THE SOFTWARE.
-//! ```
-//!
-//! Additional modifications © 2025 Lech Mazur
-//!
-//! SPDX-License-Identifier: MIT
+//! This crate is MIT licensed. Portions of the code are derived from
+//! [`hyperium/h3`](https://github.com/hyperium/h3) and are reproduced under
+//! the original MIT license terms.
+
+#![deny(missing_docs)]
 
 use std::{
     convert::TryInto,
