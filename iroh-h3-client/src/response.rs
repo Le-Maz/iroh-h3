@@ -1,3 +1,14 @@
+//! HTTP/3 response handling.
+//!
+//! This module defines the [`Response`] type, which provides access to HTTP/3 response headers
+//! and bodies.  
+//!
+//! Features include:
+//! - Reading the full response body as [`Bytes`] or [`String`]
+//! - Streaming response bodies incrementally for large payloads
+//! - JSON deserialization when the `json` feature is enabled
+//! - UTF-8 validation for text responses
+
 use std::ops::Deref;
 use std::pin::Pin;
 use std::task::Poll;
@@ -10,9 +21,11 @@ use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 
-/// Represents an HTTP/3 response received over an [`iroh`] connection.
+/// Represents an HTTP/3 response received from an [`IrohH3Client`].
 ///
-/// Provides access to response headers and body data.
+/// This type provides access to the response’s headers and body, which can be
+/// consumed all at once via [`bytes`](Self::bytes), deserialized from JSON via
+/// [`json`](Self::json), or streamed incrementally using [`bytes_stream`](Self::bytes_stream).
 #[must_use]
 pub struct Response {
     pub(crate) inner: http::response::Parts,
@@ -29,13 +42,23 @@ impl Deref for Response {
 }
 
 impl Response {
-    /// Reads the entire response body into a [`Bytes`] buffer.
+    /// Reads the full response body into a contiguous [`Bytes`] buffer.
     ///
-    /// This method consumes all available HTTP/3 DATA frames until the stream ends
-    /// or a graceful connection close occurs.
+    /// This method consumes all HTTP/3 DATA frames from the response stream until
+    /// the end of the stream or a graceful connection close.
+    ///
+    /// # Returns
+    /// A [`Bytes`] object containing the entire response body.
     ///
     /// # Errors
-    /// Returns an [`Error`] if a connection or stream error occurs while reading.
+    /// Returns an [`Error`] if a connection or stream error occurs during reading.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut response = client.send(request).await?;
+    /// let body = response.bytes().await?;
+    /// println!("Response body: {:?}", body);
+    /// ```
     pub async fn bytes(&mut self) -> Result<Bytes, Error> {
         let mut buf = Vec::new();
 
@@ -57,53 +80,85 @@ impl Response {
         Ok(Bytes::from(buf))
     }
 
-    /// Reads the entire response body and deserializes it from JSON.
+    /// Reads the full response body and returns it as a UTF-8 [`String`].
     ///
-    /// This method first verifies that the response `Content-Type` header is
-    /// `application/json`, then reads the full response body into memory and
-    /// attempts to deserialize it into the specified type.
+    /// This method consumes all HTTP/3 DATA frames from the response stream and
+    /// attempts to interpret the resulting bytes as UTF-8 text.
     ///
-    /// # Type Parameters
-    /// - `T`: The type to deserialize the JSON body into. Must implement [`DeserializeOwned`].
+    /// # Returns
+    /// A [`String`] containing the entire response body.
     ///
     /// # Errors
     /// Returns an [`Error`] if:
-    /// - The `Content-Type` header is missing or not `application/json`.
-    /// - The body cannot be read from the stream.
-    /// - The body cannot be parsed as valid JSON for type `T`.
-    #[cfg(feature = "json")]
-    pub async fn json<T: DeserializeOwned>(&mut self) -> Result<T, Error> {
-        use http::{HeaderValue, header::CONTENT_TYPE};
-
-        use crate::error::JsonError;
-        const MIME_JSON: HeaderValue = HeaderValue::from_static("application/json");
-
-        let content_type = self.headers.get(CONTENT_TYPE);
-        if content_type != Some(&MIME_JSON) {
-            use crate::error::JsonError;
-
-            return Err(JsonError::WrongContentType(content_type.cloned()).into());
-        }
-
-        let bytes = self.bytes().await?;
-        Ok(serde_json::from_slice(&bytes).map_err(JsonError::from)?)
-    }
-
-    /// Returns a stream of [`Bytes`] representing the response body.
-    ///
-    /// This method provides an asynchronous stream of chunks of the response body.
-    /// It consumes HTTP/3 DATA frames as they arrive, allowing the caller to process
-    /// the body incrementally without waiting for the entire response to be received.
-    ///
-    /// # Errors
-    /// Returns an [`Error`] if a connection or stream error occurs while reading.
+    /// - Reading the response body fails.
+    /// - The response body contains invalid UTF-8 data.
     ///
     /// # Example
     /// ```rust,ignore
     /// let mut response = client.send(request).await?;
-    /// let mut body_stream = response.stream();
-    /// while let Some(data) = body_stream.next().await.transpose()? {
-    ///     println!("Received frame: {:?}", data);
+    /// let text = response.text().await?;
+    /// println!("Response: {}", text);
+    /// ```
+    pub async fn text(&mut self) -> Result<String, Error> {
+        let bytes = self.bytes().await?;
+        let string = String::from_utf8(bytes.to_vec())
+            .map_err(|err| Error::InvalidUtf8(err.utf8_error()))?;
+        Ok(string)
+    }
+
+    /// Reads the response body in full and attempts to deserialize it as JSON.
+    ///
+    /// This method validates that the `Content-Type` header is set to
+    /// `application/json`, then reads and parses the body into the specified type.
+    ///
+    /// # Type Parameters
+    /// - `T`: The type to deserialize the JSON into. Must implement [`DeserializeOwned`].
+    ///
+    /// # Returns
+    /// A value of type `T` deserialized from the response body.
+    ///
+    /// # Errors
+    /// Returns an [`Error`] if:
+    /// - The `Content-Type` header is missing or not `application/json`.
+    /// - The response body cannot be read.
+    /// - The response body cannot be parsed as valid JSON for the target type.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// #[derive(serde::Deserialize)]
+    /// struct ApiResponse { message: String }
+    ///
+    /// let mut response = client.send(request).await?;
+    /// let data: ApiResponse = response.json().await?;
+    /// println!("Message: {}", data.message);
+    /// ```
+    #[cfg(feature = "json")]
+    pub async fn json<T: DeserializeOwned>(&mut self) -> Result<T, Error> {
+        let bytes = self.bytes().await?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    /// Returns an asynchronous stream of response body chunks.
+    ///
+    /// This method yields [`Bytes`] chunks as HTTP/3 DATA frames are received from
+    /// the server, allowing you to process large or streaming responses without
+    /// buffering the entire body in memory.
+    ///
+    /// # Returns
+    /// A [`Stream`] that yields [`Result<Bytes, Error>`] values.
+    ///
+    /// # Errors
+    /// Each stream item may return an [`Error`] if reading from the connection fails.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use futures::StreamExt;
+    ///
+    /// let mut response = client.send(request).await?;
+    /// let mut stream = response.bytes_stream();
+    ///
+    /// while let Some(chunk) = stream.next().await.transpose()? {
+    ///     println!("Received chunk: {:?}", chunk);
     /// }
     /// ```
     pub fn bytes_stream(&mut self) -> impl Stream<Item = Result<Bytes, Error>> {
