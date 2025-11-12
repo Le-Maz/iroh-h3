@@ -2,12 +2,12 @@ pub mod error;
 pub mod request;
 pub mod response;
 
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use bytes::{Buf, Bytes};
+use dashmap::{DashMap, Entry};
 use futures::future::Shared;
 use futures::{FutureExt, StreamExt};
 use h3::client::{RequestStream, SendRequest};
@@ -60,7 +60,7 @@ impl Debug for IrohH3Client {
 struct ClientInner {
     endpoint: Endpoint,
     alpn: Vec<u8>,
-    sender_cache: RwLock<HashMap<EndpointId, CachedSender>>,
+    sender_cache: DashMap<EndpointId, CachedSender>,
 }
 
 type Sender = SendRequest<OpenStreams, Bytes>;
@@ -167,13 +167,7 @@ impl IrohH3Client {
         &self,
         peer_id: EndpointId,
     ) -> Option<SendRequest<OpenStreams, Bytes>> {
-        let cached_sender = self
-            .inner
-            .sender_cache
-            .read()
-            .unwrap()
-            .get(&peer_id)
-            .cloned();
+        let cached_sender = self.inner.sender_cache.get(&peer_id).as_deref().cloned();
 
         if let Some(sender_future) = cached_sender {
             match sender_future.await {
@@ -212,12 +206,12 @@ impl IrohH3Client {
             }
 
             let action = {
-                let mut cache = self.inner.sender_cache.write().unwrap();
-                if let Some(sender_future) = cache.get(&peer_id).cloned() {
-                    Action::TryForeign(sender_future)
+                let cell = self.inner.sender_cache.entry(peer_id);
+                if let Entry::Occupied(sender_future) = cell {
+                    Action::TryForeign(sender_future.get().clone())
                 } else {
                     let sender_future = self.create_connection(peer_id);
-                    cache.insert(peer_id, sender_future.clone());
+                    cell.insert(sender_future.clone());
                     Action::CreateOwn(sender_future)
                 }
             };
@@ -232,7 +226,7 @@ impl IrohH3Client {
                     return match shared.await {
                         Ok(sender) => Ok(sender),
                         Err(error) => {
-                            self.inner.sender_cache.write().unwrap().remove(&peer_id);
+                            self.inner.sender_cache.remove(&peer_id);
                             Err(error.into())
                         }
                     };
@@ -282,12 +276,7 @@ impl IrohH3Client {
                 .map_err(Arc::new)?;
             tokio::spawn(async move {
                 conn.wait_idle().await;
-                self_clone
-                    .inner
-                    .sender_cache
-                    .write()
-                    .unwrap()
-                    .remove(&peer_id);
+                self_clone.inner.sender_cache.remove(&peer_id);
             });
             Ok(sender)
         }) as SenderFuture;
