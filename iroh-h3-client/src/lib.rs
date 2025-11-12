@@ -17,6 +17,7 @@ use http_body::Body;
 use http_body_util::BodyStream;
 use iroh::{Endpoint, EndpointId};
 use iroh_h3::{BidiStream, Connection as IrohH3Connection, OpenStreams};
+use tracing::warn;
 
 use crate::error::Error;
 use crate::request::RequestBuilder;
@@ -275,7 +276,10 @@ impl IrohH3Client {
                 .map_err(Error::from)
                 .map_err(Arc::new)?;
             tokio::spawn(async move {
-                conn.wait_idle().await;
+                let error = conn.wait_idle().await;
+                if !error.is_h3_no_error() {
+                    warn!("Connection closed with error: {error}");
+                }
                 self_clone.inner.sender_cache.remove(&peer_id);
             });
             Ok(sender)
@@ -361,7 +365,7 @@ impl IrohH3Client {
                         .expect("Non-trailers frame in a branch guarded by is_trailers");
                     stream.send_trailers(trailers).await?;
                 }
-                Some(_) => unimplemented!("Unexpected frame type"),
+                Some(_) => warn!("Unexpected frame type"),
                 None => break,
             }
         }
