@@ -4,13 +4,16 @@ use std::{
     task::{Context, Poll},
 };
 
-use axum::{Router, body::HttpBody};
+use axum::{Router, body::HttpBody, extract::FromRequestParts};
 use bytes::{Buf, Bytes};
 use futures::StreamExt;
 use h3::server::{self, RequestResolver, RequestStream};
-use http::{Request, Response};
+use http::{Request, Response, StatusCode};
 use http_body::Frame;
-use iroh::protocol::{AcceptError, ProtocolHandler};
+use iroh::{
+    EndpointId,
+    protocol::{AcceptError, ProtocolHandler},
+};
 use iroh_h3::{Connection as IrohH3Connection, RecvStream};
 use tower_service::Service;
 
@@ -38,7 +41,11 @@ impl IrohAxum {
     /// - Wraps the incoming QUIC stream as an Axum-compatible body.
     /// - Calls the [`Router`] service to obtain a response.
     /// - Streams the response body back over the QUIC stream.
-    fn handle_request(&self, request_resolver: RequestResolver<IrohH3Connection, Bytes>) {
+    fn handle_request(
+        &self,
+        remote_id: EndpointId,
+        request_resolver: RequestResolver<IrohH3Connection, Bytes>,
+    ) {
         let router = self.router.clone();
 
         tokio::spawn(async move {
@@ -54,7 +61,8 @@ impl IrohAxum {
 
             // Wrap the receive half in an Axum-compatible body.
             let request_body = RequestBody { inner: recv };
-            let request = Request::from_parts(parts, request_body);
+            let mut request = Request::from_parts(parts, request_body);
+            request.extensions_mut().insert(RemoteId(remote_id));
 
             // Call into the Axum router.
             let response = router.call(request).await?;
@@ -85,6 +93,7 @@ impl IrohAxum {
 /// requests, and dispatches them through the Axum router.
 impl ProtocolHandler for IrohAxum {
     async fn accept(&self, connection: iroh::endpoint::Connection) -> Result<(), AcceptError> {
+        let remote_id = connection.remote_id();
         // Wrap the raw iroh connection in an HTTP/3 server connection.
         let connection = IrohH3Connection::new(connection);
         let mut connection = H3ServerConnection::new(connection)
@@ -95,7 +104,7 @@ impl ProtocolHandler for IrohAxum {
         while let Some(request_resolver) =
             connection.accept().await.map_err(AcceptError::from_err)?
         {
-            self.handle_request(request_resolver);
+            self.handle_request(remote_id, request_resolver);
         }
 
         Ok(())
@@ -130,5 +139,26 @@ impl HttpBody for RequestBody {
             Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct RemoteId(pub EndpointId);
+
+impl<S> FromRequestParts<S> for RemoteId
+where
+    S: Sync,
+{
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        parts.extensions.get().cloned().ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Trying to extract RemoteId outside iroh-h3-axum context",
+        ))
     }
 }
