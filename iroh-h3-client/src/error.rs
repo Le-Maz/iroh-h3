@@ -7,7 +7,6 @@
 //! - Invalid UTF-8 in text responses
 //!
 //! The primary error type is [`Error`], which wraps all lower-level errors in a single type.
-//! JSON-specific errors are exposed under [`JsonError`] when the `json` feature is enabled.
 //!
 //! All methods that perform I/O or parsing return a `Result<_, Error>` to unify error handling.
 
@@ -16,7 +15,7 @@ use std::{convert::Infallible, sync::Arc};
 use h3::error::{ConnectionError, StreamError};
 use iroh::{KeyParsingError, endpoint::ConnectError};
 
-/// Errors that may occur while sending or receiving HTTP/3 requests using [`IrohH3Client`].
+/// Errors that may occur while sending or receiving HTTP/3 requests using [`IrohH3Client`](crate::IrohH3Client).
 ///
 /// This type aggregates possible error sources, including HTTP/3 protocol errors,
 /// connection failures, malformed URIs, and optional JSON serialization issues.

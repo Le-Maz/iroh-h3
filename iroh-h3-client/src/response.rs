@@ -21,11 +21,11 @@ use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 
-/// Represents an HTTP/3 response received from an [`IrohH3Client`].
+/// Represents an HTTP/3 response received from an [`IrohH3Client`](crate::IrohH3Client).
 ///
 /// This type provides access to the response’s headers and body, which can be
-/// consumed all at once via [`bytes`](Self::bytes), deserialized from JSON via
-/// [`json`](Self::json), or streamed incrementally using [`bytes_stream`](Self::bytes_stream).
+/// consumed all at once via [`bytes`](Self::bytes), or streamed incrementally
+/// using [`bytes_stream`](Self::bytes_stream).
 #[must_use]
 pub struct Response {
     pub(crate) inner: http::response::Parts,
