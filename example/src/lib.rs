@@ -12,6 +12,7 @@ use iroh::{
 type BoxStream<T> = futures_lite::stream::Boxed<T>;
 
 #[derive(Debug, Default)]
+#[allow(unused)]
 pub struct MockDiscovery {
     peers: HashMap<EndpointId, BTreeSet<SocketAddr>>,
 }
@@ -38,4 +39,20 @@ impl Discovery for MockDiscovery {
         let item = DiscoveryItem::new(info, "mock", None);
         Some(Box::pin(once(Ok(item))))
     }
+}
+
+pub async fn create_endpoint(discovery: Option<MockDiscovery>) -> Endpoint {
+    let mut builder = Endpoint::builder();
+    if let Some(discovery) = discovery {
+        builder = builder.discovery(discovery);
+    }
+    builder.bind().await.unwrap()
+}
+
+pub async fn create_endpoint_pair() -> (Endpoint, Endpoint) {
+    let endpoint_1 = create_endpoint(None).await;
+    let mut discovery = MockDiscovery::new();
+    discovery.add_peer(&endpoint_1);
+    let endpoint_2 = create_endpoint(Some(discovery)).await;
+    (endpoint_1, endpoint_2)
 }

@@ -1,13 +1,8 @@
 use axum::{extract::State, response::IntoResponse, routing::get};
-use iroh::{Endpoint, EndpointId};
+use example::create_endpoint_pair;
+use iroh::EndpointId;
 use iroh_h3_axum::{IrohAxum, RemoteId};
 use iroh_h3_client::IrohH3Client;
-
-mod mock_discovery {
-    include!("mock_discovery.rs");
-}
-
-use mock_discovery::MockDiscovery;
 
 const ALPN: &[u8] = b"h3";
 const PONG: &str = "Pong!";
@@ -22,14 +17,7 @@ async fn ping(
 
 #[tokio::test]
 async fn remote_id() {
-    let endpoint_1 = Endpoint::builder().bind().await.unwrap();
-    let mut discovery = MockDiscovery::new();
-    discovery.add_peer(&endpoint_1);
-    let endpoint_2 = Endpoint::builder()
-        .discovery(discovery)
-        .bind()
-        .await
-        .unwrap();
+    let (endpoint_1, endpoint_2) = create_endpoint_pair().await;
 
     let app = axum::Router::new()
         .route("/ping", get(ping))
