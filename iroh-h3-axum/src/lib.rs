@@ -1,3 +1,21 @@
+//! # iroh-h3-axum
+//!
+//! This crate provides an integration between the Axum web framework and the
+//! iroh peer-to-peer library using HTTP/3.  
+//! It allows you to serve Axum routers over iroh, reusing connections and
+//! handling multiple concurrent HTTP/3 streams efficiently.
+//!
+//! ## Features
+//! - Serve HTTP/3 endpoints using Axum routes
+//! - Wrap QUIC streams as Axum-compatible request bodies
+//! - Stream response bodies over HTTP/3
+//! - Provide access to the remote iroh endpoint ID via request extensions
+//!
+//! [Axum]: https://docs.rs/axum
+//! [iroh]: https://docs.rs/iroh
+
+#![deny(missing_docs)]
+
 use std::{
     error::Error,
     pin::Pin,
@@ -17,13 +35,15 @@ use iroh::{
 use iroh_h3::{Connection as IrohH3Connection, RecvStream};
 use tower_service::Service;
 
-/// Type alias for the H3 server-side connection using iroh QUIC transport.
+/// Type alias for the HTTP/3 server-side connection using iroh QUIC transport.
 type H3ServerConnection = server::Connection<IrohH3Connection, Bytes>;
 
 /// An HTTP/3 protocol handler that serves an [`axum::Router`] over iroh.
 ///
 /// This integrates the Axum web framework with the [`iroh`] QUIC transport,
 /// allowing HTTP/3 requests to be handled through your Axum routes.
+///
+/// Connections are reused automatically by the underlying QUIC transport.
 #[derive(Debug)]
 pub struct IrohAxum {
     router: Router,
@@ -31,16 +51,26 @@ pub struct IrohAxum {
 
 impl IrohAxum {
     /// Creates a new [`IrohAxum`] server from an [`axum::Router`].
+    ///
+    /// # Example
+    /// ```rust
+    /// use axum::Router;
+    /// use iroh_h3_axum::IrohAxum;
+    ///
+    /// let router = Router::new();
+    /// let server = IrohAxum::new(router);
+    /// ```
+    #[inline]
     pub fn new(router: Router) -> Self {
         Self { router }
     }
 
     /// Handles a single HTTP/3 request stream by routing it through Axum.
     ///
-    /// Spawns a new asynchronous task that:
-    /// - Wraps the incoming QUIC stream as an Axum-compatible body.
-    /// - Calls the [`Router`] service to obtain a response.
-    /// - Streams the response body back over the QUIC stream.
+    /// This method:
+    /// - Wraps the incoming QUIC stream as an Axum-compatible body
+    /// - Calls the [`Router`] service to obtain a response
+    /// - Streams the response body back over the QUIC connection
     fn handle_request(
         &self,
         remote_id: EndpointId,
@@ -92,15 +122,17 @@ impl IrohAxum {
 /// The handler listens for new QUIC connections, accepts incoming HTTP/3
 /// requests, and dispatches them through the Axum router.
 impl ProtocolHandler for IrohAxum {
+    /// Accepts an incoming iroh QUIC connection and serves HTTP/3 requests.
+    ///
+    /// # Errors
+    /// Returns [`AcceptError`] if connection initialization or request handling fails.
     async fn accept(&self, connection: iroh::endpoint::Connection) -> Result<(), AcceptError> {
         let remote_id = connection.remote_id();
-        // Wrap the raw iroh connection in an HTTP/3 server connection.
         let connection = IrohH3Connection::new(connection);
         let mut connection = H3ServerConnection::new(connection)
             .await
             .map_err(AcceptError::from_err)?;
 
-        // Accept and process all incoming requests on this connection.
         while let Some(request_resolver) =
             connection.accept().await.map_err(AcceptError::from_err)?
         {
@@ -142,6 +174,22 @@ impl HttpBody for RequestBody {
     }
 }
 
+/// An Axum request extractor for the remote endpoint ID.
+///
+/// This type allows you to access the [`EndpointId`] of the client that
+/// initiated the HTTP/3 request over iroh.
+///
+/// # Example
+/// ```rust
+/// use axum::{Router, routing::get};
+/// use iroh_h3_axum::RemoteId;
+///
+/// async fn handler(RemoteId(remote_id): RemoteId) -> String {
+///     format!("Hello there {:?}", remote_id)
+/// }
+///
+/// let app = Router::<()>::new().route("/", get(handler));
+/// ```
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct RemoteId(pub EndpointId);
@@ -152,11 +200,16 @@ where
 {
     type Rejection = (StatusCode, &'static str);
 
+    /// Extracts the remote endpoint ID from the request extensions.
+    ///
+    /// # Errors
+    /// Returns [`StatusCode::INTERNAL_SERVER_ERROR`] if used outside an iroh-h3-axum context.
+    #[inline]
     async fn from_request_parts(
         parts: &mut http::request::Parts,
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
-        parts.extensions.get().cloned().ok_or((
+        parts.extensions.get().copied().ok_or((
             StatusCode::INTERNAL_SERVER_ERROR,
             "Trying to extract RemoteId outside iroh-h3-axum context",
         ))
