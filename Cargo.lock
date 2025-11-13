@@ -1459,7 +1459,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
- "futures",
+ "futures-lite",
  "h3",
  "http",
  "http-body",

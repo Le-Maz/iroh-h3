@@ -24,7 +24,7 @@ use std::{
 
 use axum::{Router, body::HttpBody, extract::FromRequestParts};
 use bytes::{Buf, Bytes};
-use futures::StreamExt;
+use futures_lite::StreamExt;
 use h3::server::{self, RequestResolver, RequestStream};
 use http::{Request, Response, StatusCode};
 use http_body::Frame;

@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 iroh-h3 = { path = "../iroh-h3" }
 bytes = "^1.10"
-futures = "^0.3.31"
+futures-lite = "^2.6"
 h3 = "^0.0.8"
 iroh = "^0.95.1"
 tokio = { version = "^1.48", features = ["rt"], default-features = false }
