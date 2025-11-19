@@ -2,10 +2,16 @@
 name = "iroh-h3"
 version = "0.1.0"
 edition = "2024"
+description = "HTTP/3 transport adapter bridging Iroh's QUIC P2P connections with the h3 HTTP/3 stack."
+license = "MIT"
+repository = "https://github.com/Le-Maz/iroh-h3"
+readme = "../README.md"
+keywords = ["quic", "p2p", "h3", "http3", "iroh"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
-bytes = "^1.10"
-futures = "^0.3.31"
-h3 = "^0.0.8"
-iroh = "^0.95.1"
-tokio-util = "^0.7.17"
+bytes = "1.10"
+futures = "0.3.31"
+h3 = "0.0.8"
+iroh = "0.95.1"
+tokio-util = "0.7.17"
