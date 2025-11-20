@@ -1,5 +1,5 @@
 [workspace]
-members = ["iroh-h3", "iroh-h3-client", "iroh-h3-axum"]
+members = ["iroh-h3", "iroh-h3-client", "iroh-h3-axum", "example"]
 
 resolver = "2"
 
