@@ -83,10 +83,10 @@ impl RequestBuilder {
     /// [`Self::json`] to avoid overwriting manually specified headers.
     #[inline]
     fn ensure_content_type(mut self, value: HeaderValue) -> Self {
-        if !self
+        if self
             .inner
             .headers_ref()
-            .is_some_and(|headers| headers.get(CONTENT_TYPE).is_some())
+            .is_none_or(|headers| headers.get(CONTENT_TYPE).is_none())
         {
             self.inner = self.inner.header(CONTENT_TYPE, value);
         }
