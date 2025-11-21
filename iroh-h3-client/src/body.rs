@@ -1,0 +1,62 @@
+use bytes::Bytes;
+use futures::StreamExt;
+use http_body_util::{BodyExt, Full, combinators::BoxBody};
+
+use crate::error::Error;
+
+#[derive(Debug)]
+pub struct Body {
+    inner: Inner,
+}
+
+impl Body {
+    pub fn empty() -> Self {
+        Self {
+            inner: Inner::Bytes(Bytes::new()),
+        }
+    }
+
+    pub fn bytes(bytes: Bytes) -> Self {
+        Self {
+            inner: Inner::Bytes(bytes),
+        }
+    }
+
+    pub async fn into_bytes(self) -> Result<Bytes, Error> {
+        match self.inner {
+            Inner::Bytes(bytes) => Ok(bytes),
+            Inner::Stream(box_body) => {
+                let mut stream = box_body.into_data_stream();
+                let mut buffer = Vec::new();
+                while let Some(chunk) = stream.next().await.transpose()? {
+                    buffer.extend_from_slice(&chunk);
+                }
+                Ok(Bytes::from(buffer))
+            }
+        }
+    }
+
+    pub fn into_stream(self) -> BoxBody<Bytes, Error> {
+        match self.inner {
+            Inner::Stream(box_body) => box_body,
+            Inner::Bytes(bytes) => Full::new(bytes).map_err(Error::from).boxed(),
+        }
+    }
+}
+
+impl<E> From<BoxBody<Bytes, E>> for Body
+where
+    E: Into<Error> + 'static,
+{
+    fn from(value: BoxBody<Bytes, E>) -> Self {
+        Self {
+            inner: Inner::Stream(value.map_err(E::into).boxed()),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Inner {
+    Bytes(Bytes),
+    Stream(BoxBody<Bytes, Error>),
+}

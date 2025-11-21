@@ -13,14 +13,17 @@ pub mod sse;
 
 use std::ops::Deref;
 use std::pin::Pin;
-use std::task::Poll;
+use std::task::{Context, Poll, ready};
 
 use bytes::{Buf, Bytes};
-use futures::Stream;
-use iroh_h3::{BidiStream, OpenStreams};
+use futures::{Stream, StreamExt};
+use http_body::Frame;
+use http_body_util::BodyExt;
+use iroh_h3::OpenStreams;
 #[cfg(feature = "json")]
 use serde::de::DeserializeOwned;
 
+use crate::body::Body;
 use crate::error::Error;
 use crate::response::sse::{SseEvent, SseStream};
 
@@ -32,8 +35,7 @@ use crate::response::sse::{SseEvent, SseStream};
 #[must_use]
 pub struct Response {
     pub(crate) inner: http::response::Parts,
-    pub(crate) stream: h3::client::RequestStream<BidiStream<Bytes>, Bytes>,
-    pub(crate) _sender: h3::client::SendRequest<OpenStreams, Bytes>,
+    pub(crate) body: Body,
 }
 
 impl Deref for Response {
@@ -62,22 +64,12 @@ impl Response {
     /// let body = response.bytes().await?;
     /// println!("Response body: {:?}", body);
     /// ```
-    pub async fn bytes(&mut self) -> Result<Bytes, Error> {
+    pub async fn bytes(self) -> Result<Bytes, Error> {
         let mut buf = Vec::new();
+        let mut stream = self.bytes_stream();
 
-        loop {
-            match self.stream.recv_data().await {
-                Ok(Some(mut frame)) => {
-                    while frame.has_remaining() {
-                        let chunk = frame.chunk();
-                        buf.extend_from_slice(chunk);
-                        frame.advance(chunk.len());
-                    }
-                }
-                Ok(None) => break,
-                Err(err) if err.is_h3_no_error() => break,
-                Err(err) => return Err(err.into()),
-            }
+        while let Some(data) = stream.next().await.transpose()? {
+            buf.extend_from_slice(&data);
         }
 
         Ok(Bytes::from(buf))
@@ -102,7 +94,7 @@ impl Response {
     /// let text = response.text().await?;
     /// println!("Response: {}", text);
     /// ```
-    pub async fn text(&mut self) -> Result<String, Error> {
+    pub async fn text(self) -> Result<String, Error> {
         let bytes = self.bytes().await?;
         let string = String::from_utf8(bytes.to_vec())
             .map_err(|err| Error::InvalidUtf8(err.utf8_error()))?;
@@ -136,7 +128,7 @@ impl Response {
     /// println!("Message: {}", data.message);
     /// ```
     #[cfg(feature = "json")]
-    pub async fn json<T: DeserializeOwned>(&mut self) -> Result<T, Error> {
+    pub async fn json<T: DeserializeOwned>(self) -> Result<T, Error> {
         let bytes = self.bytes().await?;
         Ok(serde_json::from_slice(&bytes)?)
     }
@@ -164,36 +156,57 @@ impl Response {
     ///     println!("Received chunk: {:?}", chunk);
     /// }
     /// ```
-    pub fn bytes_stream(&mut self) -> impl Stream<Item = Result<Bytes, Error>> {
-        struct StreamingBody<'response> {
-            response: &'response mut Response,
-        }
-
-        impl<'response> Stream for StreamingBody<'response> {
-            type Item = Result<Bytes, Error>;
-
-            fn poll_next(
-                mut self: Pin<&mut Self>,
-                cx: &mut std::task::Context<'_>,
-            ) -> Poll<Option<Self::Item>> {
-                let poll_data = self.response.stream.poll_recv_data(cx);
-                if let Poll::Ready(result) = poll_data {
-                    let item = match result.transpose() {
-                        Some(Ok(mut frame)) => Some(Ok(frame.copy_to_bytes(frame.remaining()))),
-                        Some(Err(error)) if !error.is_h3_no_error() => Some(Err(error.into())),
-                        _ => None,
-                    };
-                    return Poll::Ready(item);
-                }
-                Poll::Pending
-            }
-        }
-
-        StreamingBody { response: self }
+    pub fn bytes_stream(self) -> impl Stream<Item = Result<Bytes, Error>> {
+        self.body.into_stream().into_data_stream()
     }
 
     /// Returns a stream of Server-Sent Events
     pub fn sse_stream(self) -> impl Stream<Item = Result<SseEvent, Error>> {
         SseStream::new(self)
+    }
+}
+
+/// HTTP/3 body implementing `http_body::Body`.
+///
+/// Wraps the `RequestStream` returned by iroh-h3.
+pub(crate) struct IrohH3ResponseBody {
+    pub(crate) stream: h3::client::RequestStream<iroh_h3::BidiStream<Bytes>, Bytes>,
+    pub(crate) _sender: h3::client::SendRequest<OpenStreams, Bytes>,
+}
+
+impl IrohH3ResponseBody {
+    pub(crate) fn new(
+        stream: h3::client::RequestStream<iroh_h3::BidiStream<Bytes>, Bytes>,
+        sender: h3::client::SendRequest<OpenStreams, Bytes>,
+    ) -> Self {
+        Self {
+            stream,
+            _sender: sender,
+        }
+    }
+}
+
+impl http_body::Body for IrohH3ResponseBody {
+    type Data = Bytes;
+    type Error = Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        match ready!(self.stream.poll_recv_data(cx)).transpose() {
+            Some(Ok(mut frame)) => {
+                let bytes = frame.copy_to_bytes(frame.remaining());
+                Poll::Ready(Some(Ok(Frame::data(bytes))))
+            }
+            Some(Err(e)) => {
+                if e.is_h3_no_error() {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Ready(Some(Err(e.into())))
+                }
+            }
+            None => Poll::Ready(None),
+        }
     }
 }

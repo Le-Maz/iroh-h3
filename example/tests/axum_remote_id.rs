@@ -32,6 +32,6 @@ async fn remote_id_extraction() {
     let client = IrohH3Client::new(endpoint_2, ALPN.into());
     let uri = format!("iroh+h3://{}/whoami", endpoint_1.id());
 
-    let mut resp = client.get(&uri).send().await.unwrap();
-    assert_eq!(resp.bytes().await.unwrap(), b"ok"[..]);
+    let response = client.get(&uri).send().await.unwrap();
+    assert_eq!(response.bytes().await.unwrap(), b"ok"[..]);
 }

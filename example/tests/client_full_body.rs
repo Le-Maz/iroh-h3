@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use http_body_util::{BodyExt as _, Full};
+use http_body_util::BodyExt as _;
 use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
@@ -30,8 +30,8 @@ async fn full_body_helpers() {
     let uri = format!("iroh+h3://{}/echo", endpoint_1.id());
 
     let payload = Bytes::from_static(b"hello-bytes");
-    let request = client.post(&uri).body(Full::new(payload.clone())).unwrap();
-    let mut response = request.send().await.unwrap();
+    let request = client.post(&uri).bytes(payload.clone()).unwrap();
+    let response = request.send().await.unwrap();
 
     let got = response.bytes().await.unwrap();
     assert_eq!(got, payload);

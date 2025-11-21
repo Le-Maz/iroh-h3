@@ -11,11 +11,10 @@
 use bytes::Bytes;
 use http::request::Builder;
 use http::{HeaderValue, header::CONTENT_TYPE};
-use http_body::Body;
-use http_body_util::{Empty, Full};
 #[cfg(feature = "json")]
 use serde::Serialize;
 
+use crate::body::Body;
 use crate::{IrohH3Client, error::Error, response::Response};
 
 /// A builder for constructing HTTP/3 requests.
@@ -56,11 +55,7 @@ impl RequestBuilder {
 
     /// Builds a request with the given body.
     #[inline]
-    pub fn body<B>(self, body: B) -> Result<Request<B>, Error>
-    where
-        B: Body,
-        http::Error: From<B::Error>,
-    {
+    pub fn body(self, body: Body) -> Result<Request, Error> {
         let request = self.inner.body(body)?;
         Ok(Request {
             inner: request,
@@ -70,8 +65,8 @@ impl RequestBuilder {
 
     /// Builds a request with an empty body.
     #[inline]
-    pub fn build(self) -> Result<Request<Empty<Bytes>>, Error> {
-        self.body(Empty::new())
+    pub fn build(self) -> Result<Request, Error> {
+        self.body(Body::empty())
     }
 
     /// Ensures that the request has a `Content-Type` header set.
@@ -101,12 +96,12 @@ impl RequestBuilder {
     /// # Errors
     /// Returns an [`Error`] if the request cannot be constructed.
     #[inline]
-    pub fn text(self, text: impl AsRef<str>) -> Result<Request<Full<Bytes>>, Error> {
+    pub fn text(self, text: impl AsRef<str>) -> Result<Request, Error> {
         const MIME_TEXT: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
 
         let body_bytes = Bytes::copy_from_slice(text.as_ref().as_bytes());
         self.ensure_content_type(MIME_TEXT)
-            .body(Full::new(body_bytes))
+            .body(Body::bytes(body_bytes))
     }
 
     /// Sets the request body to the given binary bytes.
@@ -117,11 +112,11 @@ impl RequestBuilder {
     /// # Errors
     /// Returns an [`Error`] if the request cannot be constructed.
     #[inline]
-    pub fn bytes(self, bytes: impl Into<Bytes>) -> Result<Request<Full<Bytes>>, Error> {
+    pub fn bytes(self, bytes: impl Into<Bytes>) -> Result<Request, Error> {
         const MIME_BIN: HeaderValue = HeaderValue::from_static("application/octet-stream");
 
         self.ensure_content_type(MIME_BIN)
-            .body(Full::new(bytes.into()))
+            .body(Body::bytes(bytes.into()))
     }
 
     /// Sets the body of the request to JSON-serialized data.
@@ -132,12 +127,12 @@ impl RequestBuilder {
     /// Requires the `"json"` feature.
     #[cfg(feature = "json")]
     #[inline]
-    pub fn json<T: Serialize>(self, data: &T) -> Result<Request<Full<Bytes>>, Error> {
+    pub fn json<T: Serialize>(self, data: &T) -> Result<Request, Error> {
         const MIME_JSON: HeaderValue = HeaderValue::from_static("application/json");
 
         let body = serde_json::to_vec(data)?;
         self.ensure_content_type(MIME_JSON)
-            .body(Full::new(Bytes::from(body)))
+            .body(Body::bytes(Bytes::from(body)))
     }
 
     /// Sends the request with an empty body.
@@ -147,28 +142,15 @@ impl RequestBuilder {
     }
 }
 
-impl TryFrom<RequestBuilder> for http::Request<Empty<Bytes>> {
-    type Error = Error;
-
-    #[inline]
-    fn try_from(builder: RequestBuilder) -> Result<Self, Self::Error> {
-        Ok(builder.build()?.inner)
-    }
-}
-
 /// Represents an HTTP/3 request constructed by [`RequestBuilder`].
 #[must_use]
-#[derive(Debug, Clone)]
-pub struct Request<T> {
-    inner: http::Request<T>,
+#[derive(Debug)]
+pub struct Request {
+    inner: http::Request<Body>,
     client: IrohH3Client,
 }
 
-impl<B> Request<B>
-where
-    B: Body,
-    http::Error: From<B::Error>,
-{
+impl Request {
     /// Sends this request using the associated [`IrohH3Client`].
     #[inline]
     pub async fn send(self) -> Result<Response, Error> {
@@ -177,8 +159,8 @@ where
     }
 }
 
-impl<B> From<Request<B>> for http::Request<B> {
-    fn from(value: Request<B>) -> Self {
+impl From<Request> for http::Request<Body> {
+    fn from(value: Request) -> Self {
         value.inner
     }
 }

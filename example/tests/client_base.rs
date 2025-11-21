@@ -30,7 +30,7 @@ async fn basic_get_and_headers() {
 
     let client = IrohH3Client::new(endpoint_2, ALPN.into());
     let uri = format!("iroh+h3://{}/hello", endpoint_1.id());
-    let mut response = client.get(&uri).send().await.unwrap();
+    let response = client.get(&uri).send().await.unwrap();
 
     let header = response.headers.get("x-test").unwrap();
     assert_eq!(header, "value");

@@ -16,12 +16,14 @@
 use std::{
     collections::LinkedList,
     mem::swap,
-    pin::Pin,
+    pin::{Pin, pin},
     task::{Poll, ready},
 };
 
-use bytes::Buf;
+use bytes::{Buf, Bytes};
 use futures::Stream;
+use http_body::Body;
+use http_body_util::combinators::BoxBody;
 
 use crate::{error::Error, response::Response};
 
@@ -36,8 +38,8 @@ use crate::{error::Error, response::Response};
 /// underlying response ends and no complete event is pending, `None` is
 /// returned.
 pub struct SseStream {
-    /// The HTTP/3 response providing the raw SSE byte stream.
-    response: Response,
+    /// The HTTP/3 response body.
+    body: BoxBody<Bytes, Error>,
 
     /// A buffer of unprocessed raw bytes that may contain partial lines.
     buffer: Vec<u8>,
@@ -56,7 +58,7 @@ impl SseStream {
     /// Create a new SSE stream from an HTTP response.
     pub fn new(response: Response) -> Self {
         SseStream {
-            response,
+            body: response.body.into_stream(),
             buffer: Vec::with_capacity(256),
             lines: LinkedList::new(),
             line_cursor: 0,
@@ -185,11 +187,13 @@ impl Stream for SseStream {
         }
 
         // Poll the underlying response body stream.
-        let data_result = ready!(self.response.stream.poll_recv_data(cx));
-        let frame = match data_result.transpose() {
+        let body = pin!(&mut self.body);
+        let data_poll = Body::poll_frame(body, cx);
+        let data_result = ready!(data_poll);
+        let frame = match data_result {
             Some(Ok(frame)) => frame,
-            Some(Err(error)) if !error.is_h3_no_error() => {
-                return Poll::Ready(Some(Err(error.into())));
+            Some(Err(error)) => {
+                return Poll::Ready(Some(Err(error)));
             }
             _ if self.buffer.is_empty() && self.lines.is_empty() => {
                 return Poll::Ready(None);
@@ -203,7 +207,11 @@ impl Stream for SseStream {
         };
 
         // Process the new frame.
-        self.append_frame(frame);
+        let Ok(data) = frame.into_data() else {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        };
+        self.append_frame(data);
 
         if let Some(event) = self.advance_line_cursor() {
             return Poll::Ready(Some(Ok(event)));

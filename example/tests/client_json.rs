@@ -43,7 +43,7 @@ async fn json_request_response() {
             message: PING.into(),
         })
         .unwrap();
-    let mut res = req.send().await.unwrap();
+    let res = req.send().await.unwrap();
 
     assert_eq!(res.headers.get("Content-Type").unwrap(), "application/json");
 

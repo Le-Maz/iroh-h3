@@ -76,13 +76,13 @@ async fn main() {
         content: "Hello from endpoint 2!".into(),
     };
 
-    let mut response = client.post(&uri).json(&msg).unwrap().send().await.unwrap();
+    let response = client.post(&uri).json(&msg).unwrap().send().await.unwrap();
     let reply: Message = response.json().await.unwrap();
     println!("Received reply: {} says '{}'", reply.sender, reply.content);
 
     // Subscribe to heartbeat stream
     let uri = format!("iroh+h3://{}/heartbeat", endpoint_1.id());
-    let mut response = client.get(&uri).send().await.unwrap();
+    let response = client.get(&uri).send().await.unwrap();
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await.transpose().unwrap() {

@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use bytes::Bytes;
 use futures::StreamExt;
 use http_body::Frame;
-use http_body_util::StreamBody;
+use http_body_util::{StreamBody, combinators::BoxBody};
 use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
@@ -38,7 +38,7 @@ async fn streaming_response() {
 
     let client = IrohH3Client::new(endpoint_2, ALPN.into());
     let uri = format!("iroh+h3://{}/streaming-ping", endpoint_1.id());
-    let mut response = client.get(&uri).send().await.unwrap();
+    let response = client.get(&uri).send().await.unwrap();
 
     let mut stream = response.bytes_stream();
     let mut count = 0usize;
@@ -85,11 +85,11 @@ async fn streaming_request_body() {
     let uri = format!("iroh+h3://{}/streaming-ping", endpoint_1.id());
 
     let ping_bytes = Bytes::from_static(PING.as_bytes());
-    let frame = || Frame::data(ping_bytes.clone());
-    let stream = futures::stream::repeat_with(|| Ok::<_, Infallible>(frame()));
-    let body = StreamBody::new(stream.take(PING_COUNT));
+    let frame = move || Frame::data(ping_bytes.clone());
+    let stream = futures::stream::repeat_with(move || Ok::<_, Infallible>(frame()));
+    let body = BoxBody::new(StreamBody::new(stream.take(PING_COUNT))).into();
 
-    let mut response = client.post(uri).body(body).unwrap().send().await.unwrap();
+    let response = client.post(uri).body(body).unwrap().send().await.unwrap();
     let mut resp_stream = response.bytes_stream();
     let mut count = 0usize;
     while let Some(chunk) = resp_stream.next().await.transpose().unwrap() {

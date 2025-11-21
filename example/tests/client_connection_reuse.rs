@@ -30,18 +30,17 @@ async fn many_requests_connection_reuse() {
     let uri = format!("iroh+h3://{}/ping", endpoint_1.id());
 
     for _ in 0..10 {
-        let mut res = client.post(&uri).send().await.unwrap();
+        let res = client.post(&uri).send().await.unwrap();
         assert_eq!(res.bytes().await.unwrap(), b"Pong!"[..]);
     }
 
-    let request = client.post(&uri).build().unwrap();
     let instant = Instant::now();
     let mut set = JoinSet::new();
     for _ in 0..50 {
-        let req_clone = request.clone();
+        let request = client.post(&uri).build().unwrap();
         set.spawn(async move {
-            let mut r = req_clone.send().await.unwrap();
-            r.bytes().await.unwrap();
+            let response = request.send().await.unwrap();
+            response.bytes().await.unwrap();
         });
     }
     set.join_all().await;
