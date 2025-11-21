@@ -9,6 +9,8 @@
 //! - JSON deserialization when the `json` feature is enabled
 //! - UTF-8 validation for text responses
 
+pub mod sse;
+
 use std::ops::Deref;
 use std::pin::Pin;
 use std::task::Poll;
@@ -20,6 +22,7 @@ use iroh_h3::{BidiStream, OpenStreams};
 use serde::de::DeserializeOwned;
 
 use crate::error::Error;
+use crate::response::sse::{SseEvent, SseStream};
 
 /// Represents an HTTP/3 response received from an [`IrohH3Client`](crate::IrohH3Client).
 ///
@@ -187,5 +190,10 @@ impl Response {
         }
 
         StreamingBody { response: self }
+    }
+
+    /// Returns a stream of Server-Sent Events
+    pub fn sse_stream(self) -> impl Stream<Item = Result<SseEvent, Error>> {
+        SseStream::new(self)
     }
 }

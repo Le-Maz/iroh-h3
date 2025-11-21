@@ -143,7 +143,7 @@ impl RequestBuilder {
     /// Sends the request with an empty body.
     #[inline]
     pub async fn send(self) -> Result<Response, Error> {
-        self.body(Empty::<Bytes>::new())?.send().await
+        self.build()?.send().await
     }
 }
 
