@@ -10,6 +10,7 @@
 //! - `Pipeline`: A dynamic boxed service used inside `IrohH3Client`.
 
 pub mod follow_redirects;
+pub mod cookie_jar;
 
 use futures::future::BoxFuture;
 use http::{Request, Response};
