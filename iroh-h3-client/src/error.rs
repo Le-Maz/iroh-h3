@@ -82,6 +82,15 @@ pub enum Error {
     /// but the data is not valid UTF-8.
     #[error("Invalid UTF-8: {0}")]
     InvalidUtf8(std::str::Utf8Error),
+
+    /// A general-purpose error with a human-readable message.
+    ///
+    /// This variant is used for errors that do not neatly fall into any of the
+    /// more specific categories. It is primarily intended for middleware and
+    /// utility layers that need to return an error without introducing new
+    /// structured variants.
+    #[error("{0}")]
+    Other(String),
 }
 
 impl From<Infallible> for Error {

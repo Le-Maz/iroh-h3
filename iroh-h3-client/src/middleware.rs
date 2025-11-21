@@ -9,6 +9,8 @@
 //! - `Middleware`: Wraps a `Service` and can modify requests or responses.
 //! - `Pipeline`: A dynamic boxed service used inside `IrohH3Client`.
 
+pub mod follow_redirects;
+
 use futures::future::BoxFuture;
 use http::{Request, Response};
 use std::future::Future;

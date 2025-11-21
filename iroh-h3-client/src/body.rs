@@ -4,7 +4,7 @@ use http_body_util::{BodyExt, Full, combinators::BoxBody};
 
 use crate::error::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Body {
     inner: Inner,
 }
@@ -42,6 +42,13 @@ impl Body {
             Inner::Bytes(bytes) => Full::new(bytes).map_err(Error::from).boxed(),
         }
     }
+
+    pub fn try_clone(&self) -> Option<Self> {
+        match &self.inner {
+            Inner::Bytes(bytes) => Some(Self::bytes(bytes.clone())),
+            Inner::Stream(_) => None,
+        }
+    }
 }
 
 impl<E> From<BoxBody<Bytes, E>> for Body
@@ -59,4 +66,10 @@ where
 enum Inner {
     Bytes(Bytes),
     Stream(BoxBody<Bytes, Error>),
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        Self::Bytes(Bytes::default())
+    }
 }
