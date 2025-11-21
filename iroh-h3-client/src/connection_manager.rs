@@ -186,7 +186,7 @@ impl Service for ConnectionManager {
 /// Returns:
 /// - [`Error::MissingAuthority`] if the URI lacks an authority.
 /// - [`Error::BadPeerId`] if the authority is not a valid [`EndpointId`].
-fn peer_id(uri: &Uri) -> Result<EndpointId, Error> {
+pub(crate) fn peer_id(uri: &Uri) -> Result<EndpointId, Error> {
     let authority = uri.authority().ok_or(Error::MissingAuthority)?.as_str();
     authority.parse().map_err(Error::BadPeerId)
 }
