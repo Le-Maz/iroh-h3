@@ -144,8 +144,8 @@ impl SseStream {
         let first_empty = self
             .lines
             .iter()
-            .skip(self.line_cursor)
             .enumerate()
+            .skip(self.line_cursor)
             .find_map(|(index, line)| if line.is_empty() { Some(index) } else { None });
 
         if first_empty.is_none() {
