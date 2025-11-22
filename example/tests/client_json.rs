@@ -1,5 +1,5 @@
 use axum::{Json, Router, response::IntoResponse, routing::post};
-use iroh::Endpoint;
+use example::mock_discovery::MockDiscoveryMap;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 
@@ -17,8 +17,9 @@ const PONG: &str = "Pong!";
 
 #[tokio::test]
 async fn json_request_response() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 

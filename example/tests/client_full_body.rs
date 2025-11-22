@@ -1,6 +1,6 @@
 use bytes::Bytes;
+use example::mock_discovery::MockDiscoveryMap;
 use http_body_util::BodyExt as _;
-use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 
@@ -11,8 +11,9 @@ const ALPN: &[u8] = b"iroh+h3";
 /// Full-body convenience
 #[tokio::test]
 async fn full_body_helpers() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 

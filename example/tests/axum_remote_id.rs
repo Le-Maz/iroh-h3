@@ -1,4 +1,5 @@
-use iroh::{Endpoint, EndpointId};
+use example::mock_discovery::MockDiscoveryMap;
+use iroh::EndpointId;
 use iroh_h3_axum::{IrohAxum, RemoteId};
 use iroh_h3_client::IrohH3Client;
 
@@ -9,8 +10,9 @@ const ALPN: &[u8] = b"iroh+h3";
 /// RemoteId extraction
 #[tokio::test]
 async fn remote_id_extraction() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 

@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
+use example::mock_discovery::MockDiscoveryMap;
 use futures::{StreamExt, stream::repeat};
-use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 
@@ -16,8 +16,9 @@ const ALPN: &[u8] = b"iroh+h3";
 /// Server-Sent Events
 #[tokio::test]
 async fn sse_stream() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 
@@ -51,8 +52,9 @@ async fn sse_stream() {
 async fn sse_stream_edge_cases() {
     use futures::stream::{self, StreamExt};
 
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 

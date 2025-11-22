@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use iroh::Endpoint;
+use example::mock_discovery::MockDiscoveryMap;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 use tokio::task::JoinSet;
@@ -12,8 +12,9 @@ const ALPN: &[u8] = b"iroh+h3";
 /// Connection reuse / many requests
 #[tokio::test]
 async fn many_requests_connection_reuse() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 

@@ -7,8 +7,8 @@ use axum::{
     routing::{get, post},
 };
 use bytes::Bytes;
+use example::mock_discovery::MockDiscoveryMap;
 use futures::{StreamExt, stream::repeat_with};
-use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 use serde::{Deserialize, Serialize};
@@ -56,11 +56,11 @@ async fn main() {
         .try_init()
         .unwrap();
 
+    let discovery = MockDiscoveryMap::new();
+
     // Create two endpoints
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
-    endpoint_1.online().await;
-    endpoint_2.online().await;
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
 
     // Setup Axum router for endpoint_1
     let app = Router::new()

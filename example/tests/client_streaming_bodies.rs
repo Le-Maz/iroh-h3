@@ -1,10 +1,10 @@
 use std::convert::Infallible;
 
 use bytes::Bytes;
+use example::mock_discovery::MockDiscoveryMap;
 use futures::StreamExt;
 use http_body::Frame;
 use http_body_util::{StreamBody, combinators::BoxBody};
-use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 
@@ -20,8 +20,9 @@ const ALPN: &[u8] = b"iroh+h3";
 /// Streaming responses
 #[tokio::test]
 async fn streaming_response() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 
@@ -52,8 +53,9 @@ async fn streaming_response() {
 /// Streaming request body
 #[tokio::test]
 async fn streaming_request_body() {
-    let endpoint_1 = Endpoint::bind().await.unwrap();
-    let endpoint_2 = Endpoint::bind().await.unwrap();
+    let discovery = MockDiscoveryMap::new();
+    let endpoint_1 = discovery.spawn_endpoint().await;
+    let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
     endpoint_2.online().await;
 
