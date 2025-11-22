@@ -67,6 +67,28 @@ impl SseStream {
         }
     }
 
+    /// Create an SSE stream directly from any byte stream.
+    ///
+    /// This allows unit tests to inject arbitrary frames.
+    #[cfg(test)]
+    pub(crate) fn from_stream<S>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, Error>> + Send + Sync + 'static,
+    {
+        use futures::StreamExt;
+        use http_body::Frame;
+        use http_body_util::StreamBody;
+
+        let stream = stream.map(|buf| Ok(Frame::data(buf?)));
+        SseStream {
+            body: BoxBody::new(StreamBody::new(stream)),
+            buffer: Vec::with_capacity(256),
+            lines: LinkedList::new(),
+            line_cursor: 0,
+            last_event_id: None,
+        }
+    }
+
     /// Returns the last received SSE event ID, if any.
     pub fn last_event_id(&self) -> Option<&str> {
         self.last_event_id.as_deref()
@@ -248,5 +270,225 @@ impl SseEvent {
     /// Get the event data payload.
     pub fn data(&self) -> &str {
         &self.data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use bytes::Bytes;
+    use futures::{StreamExt, stream};
+
+    fn ok_bytes(bytes: &'static [u8]) -> Result<Bytes, Error> {
+        Ok(Bytes::from_static(bytes))
+    }
+
+    // -------------------------------
+    // Basic event parsing
+    // -------------------------------
+
+    #[tokio::test]
+    async fn simple_event() {
+        let frames = stream::iter(vec![ok_bytes(b"data: hello\n\n")]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        let event = sse.next().await.unwrap().unwrap();
+
+        assert_eq!(event.data(), "hello");
+        assert_eq!(event.id(), None);
+        assert_eq!(event.event(), None);
+
+        // stream ends
+        assert!(sse.next().await.is_none());
+    }
+
+    // -------------------------------
+    // Split frames should recombine
+    // -------------------------------
+
+    #[tokio::test]
+    async fn split_frames_into_one_event() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"da"),
+            ok_bytes(b"ta: hel"),
+            ok_bytes(b"lo\n"),
+            ok_bytes(b"\n"),
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        let event = sse.next().await.unwrap().unwrap();
+        assert_eq!(event.data(), "hello");
+    }
+
+    // -------------------------------
+    // Multiple events in a single frame
+    // -------------------------------
+
+    #[tokio::test]
+    async fn multiple_events_one_frame() {
+        let frames = stream::iter(vec![ok_bytes(b"data: one\n\ndata: two\n\n")]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        let ev1 = sse.next().await.unwrap().unwrap();
+        let ev2 = sse.next().await.unwrap().unwrap();
+
+        assert_eq!(ev1.data(), "one");
+        assert_eq!(ev2.data(), "two");
+    }
+
+    // -------------------------------
+    // id: field
+    // -------------------------------
+
+    #[tokio::test]
+    async fn event_id_updates_last_event_id() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"id: 123\n"),
+            ok_bytes(b"data: x\n"),
+            ok_bytes(b"\n"),
+            ok_bytes(b"id: 456\n"),
+            ok_bytes(b"data: y\n\n"),
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        let e1 = sse.next().await.unwrap().unwrap();
+        assert_eq!(e1.id(), Some("123"));
+        assert_eq!(sse.last_event_id(), Some("123"));
+
+        let e2 = sse.next().await.unwrap().unwrap();
+        assert_eq!(e2.id(), Some("456"));
+        assert_eq!(sse.last_event_id(), Some("456"));
+    }
+
+    // -------------------------------
+    // event: field
+    // -------------------------------
+
+    #[tokio::test]
+    async fn event_type_parsed() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"event: greeting\n"),
+            ok_bytes(b"data: hi\n\n"),
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+        let event = sse.next().await.unwrap().unwrap();
+
+        assert_eq!(event.event(), Some("greeting"));
+        assert_eq!(event.data(), "hi");
+    }
+
+    // -------------------------------
+    // Multiline data
+    // -------------------------------
+
+    #[tokio::test]
+    async fn multiple_data_lines() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"data: a\n"),
+            ok_bytes(b"data: b\n"),
+            ok_bytes(b"data: c\n\n"),
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+        let event = sse.next().await.unwrap().unwrap();
+
+        assert_eq!(event.data(), "a\nb\nc");
+    }
+
+    // -------------------------------
+    // Ignore unknown fields
+    // -------------------------------
+
+    #[tokio::test]
+    async fn ignore_unknown_fields() {
+        let frames = stream::iter(vec![ok_bytes(b"foo: bar\n"), ok_bytes(b"data: hi\n\n")]);
+
+        let mut sse = SseStream::from_stream(frames);
+        let event = sse.next().await.unwrap().unwrap();
+
+        assert_eq!(event.data(), "hi");
+    }
+
+    // -------------------------------
+    // Blank event should still produce event
+    // -------------------------------
+
+    #[tokio::test]
+    async fn blank_event() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"\n"), // immediate blank event
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        let event = sse.next().await.unwrap().unwrap();
+        assert_eq!(event.data(), "");
+        assert_eq!(event.id(), None);
+        assert_eq!(event.event(), None);
+    }
+
+    // -------------------------------
+    // Trailing newline removed
+    // -------------------------------
+
+    #[tokio::test]
+    async fn trailing_newline_removed() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"data: x\n"),
+            ok_bytes(b"data: y\n"),
+            ok_bytes(b"\n"),
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+        let event = sse.next().await.unwrap().unwrap();
+
+        assert_eq!(event.data(), "x\ny");
+    }
+
+    // -------------------------------
+    // Stream ends mid-event → no event emitted
+    // -------------------------------
+
+    #[tokio::test]
+    async fn incomplete_event_on_eof_is_discarded() {
+        let frames = stream::iter(vec![
+            ok_bytes(b"data: incomplete"), // never ends with "\n\n"
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        assert!(sse.next().await.is_none());
+        assert_eq!(sse.last_event_id(), None);
+    }
+
+    // -------------------------------
+    // Error propagation
+    // -------------------------------
+
+    #[tokio::test]
+    async fn propagate_stream_error() {
+        let err = Arc::new(Error::Other("boom".to_string()));
+
+        let frames = stream::iter(vec![
+            Ok(Bytes::from_static(b"data: ok\n\n")),
+            Err(err.clone().into()),
+        ]);
+
+        let mut sse = SseStream::from_stream(frames);
+
+        // first event is okay
+        let first = sse.next().await.unwrap().unwrap();
+        assert_eq!(first.data(), "ok");
+
+        // next is error
+        let second = sse.next().await.unwrap();
+        assert!(second.is_err());
     }
 }
