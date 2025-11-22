@@ -27,9 +27,9 @@ impl FollowRedirects {
     }
 
     fn resolve_redirect(base: &http::Uri, location: &str) -> Result<http::Uri, Error> {
-        // Absolute URI? Just parse it.
+        // Absolute URI? Only accept it if it has both scheme and authority.
         if let Ok(uri) = location.parse::<http::Uri>() {
-            if uri.scheme().is_some() {
+            if uri.scheme().is_some() && uri.authority().is_some() {
                 return Ok(uri);
             }
         }
@@ -54,7 +54,7 @@ impl FollowRedirects {
             .map_err(|e| Error::Other(format!("Invalid redirect URI: {e}")));
         }
 
-        // Path-relative redirect (e.g. "foo", "../bar")
+        // Path-relative redirect ("foo", "../bar")
         let mut base_path = base
             .path()
             .rsplit_once('/')
@@ -198,5 +198,61 @@ impl Middleware for FollowRedirects {
                 ControlFlow::Break(response) => return Ok(response),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::Uri;
+
+    fn uri(s: &str) -> Uri {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn absolute_redirect_is_used_directly() {
+        let base = uri("https://example.com/foo/bar");
+        let loc = "https://other.com/new/path";
+
+        let resolved = FollowRedirects::resolve_redirect(&base, loc).unwrap();
+        assert_eq!(resolved, uri("https://other.com/new/path"));
+    }
+
+    #[test]
+    fn absolute_path_redirect_replaces_path_and_query() {
+        let base = uri("https://example.com/foo/bar?x=1");
+        let loc = "/new/path";
+
+        let resolved = FollowRedirects::resolve_redirect(&base, loc).unwrap();
+        assert_eq!(resolved, uri("https://example.com/new/path"));
+    }
+
+    #[test]
+    fn relative_redirect_appends_to_directory() {
+        let base = uri("https://example.com/foo/bar");
+        let loc = "baz";
+
+        let resolved = FollowRedirects::resolve_redirect(&base, loc).unwrap();
+        assert_eq!(resolved, uri("https://example.com/foo/baz"));
+    }
+
+    #[test]
+    fn parent_directory_relative_redirect() {
+        let base = uri("https://example.com/foo/bar");
+        let loc = "../up";
+
+        let resolved = FollowRedirects::resolve_redirect(&base, loc).unwrap();
+        assert_eq!(resolved, uri("https://example.com/foo/../up"));
+        // NOTE: Uri does not normalize paths; this is correct.
+    }
+
+    #[test]
+    fn missing_scheme_in_base_uri_is_error() {
+        let base = uri("//example.com/foo"); // scheme missing
+        let loc = "/redir";
+
+        let err = FollowRedirects::resolve_redirect(&base, loc).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
     }
 }
