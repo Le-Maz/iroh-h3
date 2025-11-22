@@ -23,6 +23,7 @@ use tracing::warn;
 
 use crate::body::Body;
 use crate::error::Error;
+use crate::error::RequestValidationError;
 use crate::middleware::Service;
 use crate::response::IrohH3ResponseBody;
 
@@ -109,12 +110,12 @@ impl ConnectionManager {
                 .endpoint
                 .connect(peer_id, &self_clone.alpn)
                 .await
-                .map_err(Error::from)
+                .map_err(|err| Error::Transport(err.into()))
                 .map_err(Arc::new)?;
             let conn = IrohH3Connection::new(conn);
             let (conn, sender) = h3::client::new(conn)
                 .await
-                .map_err(Error::from)
+                .map_err(|err| Error::Transport(err.into()))
                 .map_err(Arc::new)?;
 
             // Cleanup task when connection closes
@@ -133,7 +134,10 @@ impl ConnectionManager {
         peer_id: EndpointId,
     ) {
         let error = conn.wait_idle().await;
-        trace!("Connection with {} closed. Cause: {error}", peer_id.fmt_short());
+        trace!(
+            "Connection with {} closed. Cause: {error}",
+            peer_id.fmt_short()
+        );
         self.sender_cache.remove(&peer_id);
     }
 
@@ -154,13 +158,19 @@ impl ConnectionManager {
                         .into_data()
                         .expect("Non-data frame in a branch guarded by is_data");
                     let buf = data.copy_to_bytes(data.remaining());
-                    stream.send_data(buf).await?;
+                    stream
+                        .send_data(buf)
+                        .await
+                        .map_err(|err| Error::Transport(err.into()))?;
                 }
                 Some(frame) if frame.is_trailers() => {
                     let trailers = frame
                         .into_trailers()
                         .expect("Non-trailers frame in a branch guarded by is_trailers");
-                    stream.send_trailers(trailers).await?;
+                    stream
+                        .send_trailers(trailers)
+                        .await
+                        .map_err(|err| Error::Transport(err.into()))?;
                 }
                 Some(_) => warn!("Unexpected frame type"),
                 None => break,
@@ -181,11 +191,20 @@ impl Service for ConnectionManager {
         let (parts, body) = request.into_parts();
         let req = http::Request::from_parts(parts, ());
 
-        let mut stream = sender.send_request(req).await?;
+        let mut stream = sender
+            .send_request(req)
+            .await
+            .map_err(|err| Error::Transport(err.into()))?;
         Self::send_body(&mut stream, body).await?;
-        stream.finish().await?;
+        stream
+            .finish()
+            .await
+            .map_err(|err| Error::Transport(err.into()))?;
 
-        let response = stream.recv_response().await?;
+        let response = stream
+            .recv_response()
+            .await
+            .map_err(|err| Error::Transport(err.into()))?;
         let inner = response.into_parts().0;
 
         let response_body = IrohH3ResponseBody::new(stream, sender);
@@ -204,6 +223,11 @@ impl Service for ConnectionManager {
 /// - [`Error::BadPeerId`] if the authority is not a valid [`EndpointId`].
 #[instrument]
 pub(crate) fn peer_id(uri: &Uri) -> Result<EndpointId, Error> {
-    let authority = uri.authority().ok_or(Error::MissingAuthority)?.as_str();
-    authority.parse().map_err(Error::BadPeerId)
+    let authority = uri
+        .authority()
+        .ok_or_else(|| RequestValidationError::MissingAuthority)?
+        .as_str();
+    authority
+        .parse()
+        .map_err(|err| RequestValidationError::BadPeerId(err).into())
 }

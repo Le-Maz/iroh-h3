@@ -131,7 +131,7 @@ impl RequestBuilder {
     pub fn json<T: Serialize>(self, data: &T) -> Result<Request, Error> {
         const MIME_JSON: HeaderValue = HeaderValue::from_static("application/json");
 
-        let body = serde_json::to_vec(data)?;
+        let body = serde_json::to_vec(data).map_err(|err| Error::RequestValidation(err.into()))?;
         self.ensure_content_type(MIME_JSON)
             .body(Body::bytes(Bytes::from(body)))
     }

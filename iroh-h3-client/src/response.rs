@@ -102,7 +102,7 @@ impl Response {
         let bytes = self.bytes().await?;
         let string = String::from_utf8(bytes.to_vec()).map_err(|err| {
             debug!("UTF-8 conversion failed");
-            Error::InvalidUtf8(err.utf8_error())
+            Error::ResponseValidation(err.utf8_error().into())
         })?;
         Ok(string)
     }
@@ -137,7 +137,8 @@ impl Response {
     #[instrument(skip(self))]
     pub async fn json<T: DeserializeOwned>(self) -> Result<T, Error> {
         let bytes = self.bytes().await?;
-        let value = serde_json::from_slice(&bytes)?;
+        let value =
+            serde_json::from_slice(&bytes).map_err(|err| Error::ResponseValidation(err.into()))?;
         debug!("parsed JSON successfully");
         Ok(value)
     }
@@ -212,12 +213,12 @@ impl http_body::Body for IrohH3ResponseBody {
                 let bytes = frame.copy_to_bytes(frame.remaining());
                 Poll::Ready(Some(Ok(Frame::data(bytes))))
             }
-            Some(Err(e)) => {
-                if e.is_h3_no_error() {
+            Some(Err(err)) => {
+                if err.is_h3_no_error() {
                     debug!("received H3_NO_ERROR");
                     Poll::Ready(None)
                 } else {
-                    Poll::Ready(Some(Err(e.into())))
+                    Poll::Ready(Some(Err(Error::Transport(err.into()))))
                 }
             }
             None => Poll::Ready(None),
