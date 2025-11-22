@@ -22,6 +22,7 @@ use http_body_util::BodyExt;
 use iroh_h3::OpenStreams;
 #[cfg(feature = "json")]
 use serde::de::DeserializeOwned;
+use tracing::{debug, instrument, trace};
 
 use crate::body::Body;
 use crate::error::Error;
@@ -64,11 +65,13 @@ impl Response {
     /// let body = response.bytes().await?;
     /// println!("Response body: {:?}", body);
     /// ```
+    #[instrument(skip(self))]
     pub async fn bytes(self) -> Result<Bytes, Error> {
         let mut buf = Vec::new();
         let mut stream = self.bytes_stream();
 
         while let Some(data) = stream.next().await.transpose()? {
+            debug!("received {} bytes", data.len());
             buf.extend_from_slice(&data);
         }
 
@@ -94,10 +97,13 @@ impl Response {
     /// let text = response.text().await?;
     /// println!("Response: {}", text);
     /// ```
+    #[instrument(skip(self))]
     pub async fn text(self) -> Result<String, Error> {
         let bytes = self.bytes().await?;
-        let string = String::from_utf8(bytes.to_vec())
-            .map_err(|err| Error::InvalidUtf8(err.utf8_error()))?;
+        let string = String::from_utf8(bytes.to_vec()).map_err(|err| {
+            debug!("UTF-8 conversion failed");
+            Error::InvalidUtf8(err.utf8_error())
+        })?;
         Ok(string)
     }
 
@@ -128,9 +134,12 @@ impl Response {
     /// println!("Message: {}", data.message);
     /// ```
     #[cfg(feature = "json")]
+    #[instrument(skip(self))]
     pub async fn json<T: DeserializeOwned>(self) -> Result<T, Error> {
         let bytes = self.bytes().await?;
-        Ok(serde_json::from_slice(&bytes)?)
+        let value = serde_json::from_slice(&bytes)?;
+        debug!("parsed JSON successfully");
+        Ok(value)
     }
 
     /// Returns an asynchronous stream of response body chunks.
@@ -156,11 +165,13 @@ impl Response {
     ///     println!("Received chunk: {:?}", chunk);
     /// }
     /// ```
+    #[instrument(skip(self))]
     pub fn bytes_stream(self) -> impl Stream<Item = Result<Bytes, Error>> {
         self.body.into_stream().into_data_stream()
     }
 
     /// Returns a stream of Server-Sent Events
+    #[instrument(skip(self))]
     pub fn sse_stream(self) -> impl Stream<Item = Result<SseEvent, Error>> {
         SseStream::new(self)
     }
@@ -190,17 +201,20 @@ impl http_body::Body for IrohH3ResponseBody {
     type Data = Bytes;
     type Error = Error;
 
+    #[instrument(skip(self, cx))]
     fn poll_frame(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         match ready!(self.stream.poll_recv_data(cx)).transpose() {
             Some(Ok(mut frame)) => {
+                trace!("received a frame of {} bytes", frame.remaining());
                 let bytes = frame.copy_to_bytes(frame.remaining());
                 Poll::Ready(Some(Ok(Frame::data(bytes))))
             }
             Some(Err(e)) => {
                 if e.is_h3_no_error() {
+                    debug!("received H3_NO_ERROR");
                     Poll::Ready(None)
                 } else {
                     Poll::Ready(Some(Err(e.into())))

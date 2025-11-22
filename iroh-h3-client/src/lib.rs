@@ -180,6 +180,7 @@ impl IrohH3Client {
     http_method!(delete, Method::DELETE);
 
     /// Sends an HTTP/3 request and awaits the response.
+    #[tracing::instrument(skip(self))]
     async fn send(&self, request: http::Request<Body>) -> Result<crate::response::Response, Error> {
         let response = self.inner.service.handle(request).await?;
         let (inner, body) = response.into_parts();

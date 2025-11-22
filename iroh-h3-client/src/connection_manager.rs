@@ -1,11 +1,14 @@
+use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Buf;
 use bytes::Bytes;
 use dashmap::{DashMap, Entry};
 use futures::FutureExt;
 use futures::future::Shared;
+use h3::client::Connection;
 use h3::client::RequestStream;
 use http::Response;
 use http::Uri;
@@ -14,6 +17,8 @@ use http_body_util::BodyExt;
 use iroh::{Endpoint, EndpointId};
 use iroh_h3::BidiStream;
 use iroh_h3::{Connection as IrohH3Connection, OpenStreams};
+use tracing::instrument;
+use tracing::trace;
 use tracing::warn;
 
 use crate::body::Body;
@@ -41,6 +46,7 @@ impl ConnectionManager {
         }
     }
 
+    #[instrument(skip(self, peer_id))]
     pub async fn get_sender(&self, peer_id: EndpointId) -> Result<Sender, Error> {
         // Try cached sender first
         if let Some(sender) = self.try_get_cached_sender(peer_id).await {
@@ -49,6 +55,7 @@ impl ConnectionManager {
         self.coordinate_connection_setup(peer_id).await
     }
 
+    #[instrument(skip(self, peer_id))]
     async fn try_get_cached_sender(&self, peer_id: EndpointId) -> Option<Sender> {
         let cached_sender = self.sender_cache.get(&peer_id).as_deref().cloned();
         if let Some(shared) = cached_sender
@@ -59,31 +66,29 @@ impl ConnectionManager {
         None
     }
 
+    #[instrument(skip(self, peer_id))]
     async fn coordinate_connection_setup(&self, peer_id: EndpointId) -> Result<Sender, Error> {
         loop {
-            enum Action {
-                UseExisting(Shared<SenderFuture>),
-                CreateNew(Shared<SenderFuture>),
-            }
-
             let action = {
                 let entry = self.sender_cache.entry(peer_id);
                 if let Entry::Occupied(sender_future) = entry {
-                    Action::UseExisting(sender_future.get().clone())
+                    ControlFlow::Continue(sender_future.get().clone())
                 } else {
+                    trace!("trying to connect to {}", peer_id.fmt_short());
                     let future = self.create_connection(peer_id);
                     entry.insert(future.clone());
-                    Action::CreateNew(future)
+                    ControlFlow::Break(future)
                 }
             };
 
             match action {
-                Action::UseExisting(shared) => {
+                ControlFlow::Continue(shared) => {
                     if let Ok(sender) = shared.await {
                         return Ok(sender);
                     }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
                 }
-                Action::CreateNew(shared) => {
+                ControlFlow::Break(shared) => {
                     return match shared.await {
                         Ok(sender) => Ok(sender),
                         Err(err) => {
@@ -96,26 +101,24 @@ impl ConnectionManager {
         }
     }
 
+    #[instrument(skip(self, peer_id))]
     fn create_connection(&self, peer_id: EndpointId) -> Shared<SenderFuture> {
-        let this = self.clone();
+        let self_clone = self.clone();
         let fut: SenderFuture = Box::pin(async move {
-            let conn = this
+            let conn = self_clone
                 .endpoint
-                .connect(peer_id, &this.alpn)
+                .connect(peer_id, &self_clone.alpn)
                 .await
                 .map_err(Error::from)
                 .map_err(Arc::new)?;
             let conn = IrohH3Connection::new(conn);
-            let (mut conn, sender) = h3::client::new(conn)
+            let (conn, sender) = h3::client::new(conn)
                 .await
                 .map_err(Error::from)
                 .map_err(Arc::new)?;
 
             // Cleanup task when connection closes
-            tokio::spawn(async move {
-                let _ = conn.wait_idle().await;
-                this.sender_cache.remove(&peer_id);
-            });
+            tokio::spawn(self_clone.run_connection(conn, peer_id));
 
             Ok(sender)
         });
@@ -123,10 +126,22 @@ impl ConnectionManager {
         fut.shared()
     }
 
+    #[instrument(skip(self, conn))]
+    async fn run_connection(
+        self,
+        mut conn: Connection<iroh_h3::Connection, Bytes>,
+        peer_id: EndpointId,
+    ) {
+        let error = conn.wait_idle().await;
+        trace!("Connection with {} closed. Cause: {error}", peer_id.fmt_short());
+        self.sender_cache.remove(&peer_id);
+    }
+
     /// Sends an HTTP body over the given request stream.
     ///
     /// Consumes all frames emitted by the provided [`Body`] and transmits them
     /// as HTTP/3 DATA or TRAILERS frames.
+    #[instrument(skip(stream, body))]
     async fn send_body(
         stream: &mut RequestStream<BidiStream<Bytes>, Bytes>,
         body: Body,
@@ -156,6 +171,7 @@ impl ConnectionManager {
 }
 
 impl Service for ConnectionManager {
+    #[instrument(skip(self, request))]
     async fn handle(&self, mut request: http::Request<Body>) -> Result<Response<Body>, Error> {
         let peer_id = peer_id(request.uri())?;
         let mut sender = self.get_sender(peer_id).await?;
@@ -186,6 +202,7 @@ impl Service for ConnectionManager {
 /// Returns:
 /// - [`Error::MissingAuthority`] if the URI lacks an authority.
 /// - [`Error::BadPeerId`] if the authority is not a valid [`EndpointId`].
+#[instrument]
 pub(crate) fn peer_id(uri: &Uri) -> Result<EndpointId, Error> {
     let authority = uri.authority().ok_or(Error::MissingAuthority)?.as_str();
     authority.parse().map_err(Error::BadPeerId)

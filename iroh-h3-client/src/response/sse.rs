@@ -17,13 +17,14 @@ use std::{
     collections::LinkedList,
     mem::swap,
     pin::{Pin, pin},
-    task::{Poll, ready},
+    task::{Context, Poll, ready},
 };
 
 use bytes::{Buf, Bytes};
 use futures::Stream;
 use http_body::Body;
 use http_body_util::combinators::BoxBody;
+use tracing::instrument;
 
 use crate::{error::Error, response::Response};
 
@@ -177,10 +178,8 @@ impl Stream for SseStream {
     /// Attempts to parse and return a complete event if possible.
     /// Otherwise waits for more data from the underlying response's
     /// stream.
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    #[instrument(skip(self, cx))]
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Emit any buffered complete event first.
         if let Some(event) = self.advance_line_cursor() {
             return Poll::Ready(Some(Ok(event)));

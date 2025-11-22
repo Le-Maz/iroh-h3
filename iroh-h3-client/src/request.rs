@@ -13,6 +13,7 @@ use http::request::Builder;
 use http::{HeaderValue, header::CONTENT_TYPE};
 #[cfg(feature = "json")]
 use serde::Serialize;
+use tracing::instrument;
 
 use crate::body::Body;
 use crate::{IrohH3Client, error::Error, response::Response};
@@ -137,6 +138,7 @@ impl RequestBuilder {
 
     /// Sends the request with an empty body.
     #[inline]
+    #[instrument(skip(self))]
     pub async fn send(self) -> Result<Response, Error> {
         self.build()?.send().await
     }
@@ -153,6 +155,7 @@ pub struct Request {
 impl Request {
     /// Sends this request using the associated [`IrohH3Client`].
     #[inline]
+    #[instrument(skip(self))]
     pub async fn send(self) -> Result<Response, Error> {
         let response = self.client.send(self.inner).await?;
         Ok(response)

@@ -24,6 +24,7 @@ use http::{
     header::{COOKIE, SET_COOKIE},
 };
 use iroh::EndpointId;
+use tracing::{debug, instrument, trace, warn};
 
 use crate::{
     body::Body,
@@ -52,49 +53,60 @@ impl CookieJar {
 }
 
 impl Middleware for CookieJar {
+    #[instrument(skip(self, next, request), fields(uri = %request.uri()))]
     async fn handle(
         &self,
         mut request: http::Request<Body>,
         next: &impl Service,
     ) -> Result<http::Response<Body>, Error> {
         let peer_id = peer_id(request.uri())?;
+        debug!(?peer_id, "handling request with cookie jar");
 
         // ---- 1. Attach cookies to outgoing request ----
-
         if let Some(map) = self.cookies.get(&peer_id) {
             if !map.is_empty() {
-                // Encode all cookies: key=value pairs
                 let cookie_header = map
                     .iter()
                     .map(|entry| entry.value().encoded().to_string())
                     .collect::<Vec<_>>()
                     .join("; ");
 
+                debug!(cookie_header = %cookie_header, "attaching cookies to request");
+
                 request.headers_mut().insert(
                     COOKIE,
                     HeaderValue::from_str(&cookie_header).map_err(http::Error::from)?,
                 );
+            } else {
+                trace!("no cookies to attach for this peer");
             }
+        } else {
+            trace!("no cookie map exists yet for this peer");
         }
 
         // ---- 2. Forward the request ----
-
+        debug!("forwarding request to next middleware/service");
         let response = next.handle(request).await?;
 
         // ---- 3. Parse Set-Cookie headers ----
-
         let set_cookie_values = response.headers().get_all(SET_COOKIE);
 
         for val in set_cookie_values.iter() {
             if let Ok(header_str) = val.to_str() {
-                if let Ok(cookie) = Cookie::parse_encoded(header_str) {
-                    // Convert to owned `'static` cookie
-                    let owned: Cookie<'static> = cookie.into_owned();
+                match Cookie::parse_encoded(header_str) {
+                    Ok(cookie) => {
+                        let owned: Cookie<'static> = cookie.into_owned();
+                        let name = owned.name().to_string();
+                        debug!(cookie_name = %name, "storing cookie from response");
 
-                    let name = owned.name().to_string();
-
-                    self.cookies.entry(peer_id).or_default().insert(name, owned);
+                        self.cookies.entry(peer_id).or_default().insert(name, owned);
+                    }
+                    Err(err) => {
+                        warn!(header_value = %header_str, error = %err, "failed to parse Set-Cookie header");
+                    }
                 }
+            } else {
+                warn!(header_value = ?val, "invalid Set-Cookie header (non-UTF8)");
             }
         }
 

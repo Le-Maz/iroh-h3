@@ -12,6 +12,7 @@ use iroh::Endpoint;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, registry, util::SubscriberInitExt};
 
 const ALPN: &[u8] = b"h3";
 
@@ -49,6 +50,12 @@ async fn message_stream() -> impl IntoResponse {
 // -------------------
 #[tokio::main]
 async fn main() {
+    registry()
+        .with(tracing_subscriber::fmt::layer().compact())
+        .with(EnvFilter::from_default_env().add_directive("iroh_h3_client=trace".parse().unwrap()))
+        .try_init()
+        .unwrap();
+
     // Create two endpoints
     let endpoint_1 = Endpoint::bind().await.unwrap();
     let endpoint_2 = Endpoint::bind().await.unwrap();

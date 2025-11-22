@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use futures::StreamExt;
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
+use tracing::instrument;
 
 use crate::error::Error;
 
@@ -22,6 +23,7 @@ impl Body {
         }
     }
 
+    #[instrument]
     pub async fn into_bytes(self) -> Result<Bytes, Error> {
         match self.inner {
             Inner::Bytes(bytes) => Ok(bytes),
