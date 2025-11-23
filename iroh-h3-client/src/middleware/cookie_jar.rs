@@ -185,7 +185,7 @@ mod tests {
     // -------------------------------
 
     #[test]
-    fn test_update_and_get_cookies_for() {
+    fn update_and_get_cookies_for() {
         let jar = CookieJar::new();
         let peer = random_peer();
 
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_cookie_header_empty() {
+    fn build_cookie_header_empty() {
         let jar = CookieJar::new();
         let peer = random_peer();
 
@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_cookie_header_non_empty() {
+    fn build_cookie_header_non_empty() {
         let jar = CookieJar::new();
         let peer = random_peer();
 
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_attach_request_cookies() {
+    fn attach_request_cookies() {
         let jar = CookieJar::new();
         let peer = random_peer();
 
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_response_cookies() {
+    fn parse_response_cookies() {
         let jar = CookieJar::new();
 
         let mut resp = Response::new(Body::default());
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_new_cookies() {
+    fn store_new_cookies() {
         let jar = CookieJar::new();
         let peer = random_peer();
 
