@@ -142,6 +142,12 @@ impl CookieJar {
     }
 }
 
+impl Default for CookieJar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Middleware for CookieJar {
     #[instrument(skip(self, next, request), fields(uri = %request.uri()))]
     async fn handle(

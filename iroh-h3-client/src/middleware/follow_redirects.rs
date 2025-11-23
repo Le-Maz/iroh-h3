@@ -28,10 +28,11 @@ impl FollowRedirects {
 
     fn resolve_redirect(base: &http::Uri, location: &str) -> Result<http::Uri, Error> {
         // Absolute URI? Only accept it if it has both scheme and authority.
-        if let Ok(uri) = location.parse::<http::Uri>() {
-            if uri.scheme().is_some() && uri.authority().is_some() {
-                return Ok(uri);
-            }
+        if let Ok(uri) = location.parse::<http::Uri>()
+            && uri.scheme().is_some()
+            && uri.authority().is_some()
+        {
+            return Ok(uri);
         }
 
         // Otherwise treat it as relative

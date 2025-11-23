@@ -198,15 +198,14 @@ impl IrohH3ResponseBody {
     }
 }
 
+type BodyStreamItem = Result<http_body::Frame<Bytes>, Error>;
+
 impl http_body::Body for IrohH3ResponseBody {
     type Data = Bytes;
     type Error = Error;
 
     #[instrument(skip(self, cx))]
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+    fn poll_frame(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<BodyStreamItem>> {
         match ready!(self.stream.poll_recv_data(cx)).transpose() {
             Some(Ok(mut frame)) => {
                 trace!("received a frame of {} bytes", frame.remaining());
