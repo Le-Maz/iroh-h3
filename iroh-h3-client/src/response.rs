@@ -60,10 +60,17 @@ impl Response {
     /// Returns an [`Error`] if a connection or stream error occurs during reading.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// let mut response = client.send(request).await?;
+    /// ```rust
+    /// # use iroh_h3_client::request::Request;
+    ///
+    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// 
+    /// let mut response = request.send().await?;
     /// let body = response.bytes().await?;
     /// println!("Response body: {:?}", body);
+    /// 
+    /// # Ok(())
+    /// # }
     /// ```
     #[instrument(skip(self))]
     pub async fn bytes(self) -> Result<Bytes, Error> {
@@ -92,10 +99,17 @@ impl Response {
     /// - The response body contains invalid UTF-8 data.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// let mut response = client.send(request).await?;
+    /// ```rust
+    /// # use iroh_h3_client::request::Request;
+    ///
+    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// 
+    /// let mut response = request.send().await?;
     /// let text = response.text().await?;
     /// println!("Response: {}", text);
+    /// 
+    /// # Ok(())
+    /// # }
     /// ```
     #[instrument(skip(self))]
     pub async fn text(self) -> Result<String, Error> {
@@ -125,13 +139,20 @@ impl Response {
     /// - The response body cannot be parsed as valid JSON for the target type.
     ///
     /// # Example
-    /// ```rust,ignore
+    /// ```rust
     /// #[derive(serde::Deserialize)]
     /// struct ApiResponse { message: String }
     ///
-    /// let mut response = client.send(request).await?;
+    /// # use iroh_h3_client::request::Request;
+    ///
+    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// 
+    /// let mut response = request.send().await?;
     /// let data: ApiResponse = response.json().await?;
     /// println!("Message: {}", data.message);
+    /// 
+    /// # Ok(())
+    /// # }
     /// ```
     #[cfg(feature = "json")]
     #[instrument(skip(self))]
@@ -156,15 +177,19 @@ impl Response {
     /// Each stream item may return an [`Error`] if reading from the connection fails.
     ///
     /// # Example
-    /// ```rust,ignore
+    /// ```rust
     /// use futures::StreamExt;
+    /// # use iroh_h3_client::request::Request;
     ///
-    /// let mut response = client.send(request).await?;
+    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut response = request.send().await?;
     /// let mut stream = response.bytes_stream();
     ///
     /// while let Some(chunk) = stream.next().await.transpose()? {
     ///     println!("Received chunk: {:?}", chunk);
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
     #[instrument(skip(self))]
     pub fn bytes_stream(self) -> impl Stream<Item = Result<Bytes, Error>> {

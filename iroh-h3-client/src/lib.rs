@@ -158,8 +158,11 @@ impl IrohH3Client {
     /// a custom method.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// let req = client.request(http::Method::PUT, "iroh+h3://peer/some/path");
+    /// ```rust
+    /// use iroh_h3_client::IrohH3Client;
+    /// # async fn example(client: IrohH3Client) {
+    /// let req = client.request(http::Method::PUT, "iroh+h3://peer/some/path").build();
+    /// # }
     /// ```
     pub fn request<U>(&self, method: http::Method, uri: U) -> RequestBuilder
     where
