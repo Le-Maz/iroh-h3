@@ -14,8 +14,7 @@
 //! The output item of the stream is [`Result<SseEvent, Error>`].
 
 use std::{
-    collections::LinkedList,
-    mem::swap,
+    collections::VecDeque,
     pin::{Pin, pin},
     task::{Context, Poll, ready},
 };
@@ -28,48 +27,75 @@ use tracing::instrument;
 
 use crate::{error::Error, response::Response};
 
-/// A streaming parser for Server-Sent Events.
+/// A streaming Server-Sent Events (SSE) parser.
 ///
-/// `SseStream` consumes an underlying [`Response`] that yields raw byte
-/// frames. Frames may split SSE lines arbitrarily, so the stream buffers
-/// data internally until complete lines and complete events can be
-/// constructed.
+/// `SseStream` consumes an HTTP response body that yields `Bytes` frames
+/// and incrementally parses them according to the SSE specification.
 ///
-/// An SSE event is emitted when a blank line is encountered. If the
-/// underlying response ends and no complete event is pending, `None` is
-/// returned.
+/// ## Key Features
+///
+/// - Handles arbitrary frame boundaries
+/// - Reconstructs `\n`-terminated SSE lines
+/// - Builds events incrementally as data arrives
+/// - Supports `data:`, `id:`, and `event:` fields
+/// - Maintains `last_event_id` semantics
+///
+/// This implementation avoids repeated scans and uses a `VecDeque<u8>`
+/// for efficient front-draining of processed bytes.
 pub struct SseStream {
-    /// The HTTP/3 response body.
+    /// The HTTP response body being streamed.
+    ///
+    /// Each yielded frame contains raw bytes representing SSE text.
     body: BoxBody<Bytes, Error>,
 
-    /// A buffer of unprocessed raw bytes that may contain partial lines.
-    buffer: Vec<u8>,
+    /// A deque of unprocessed raw bytes.
+    ///
+    /// Bytes are appended at the back and consumed from the front as
+    /// complete lines (ending in `\n`) are detected.
+    buffer: VecDeque<u8>,
 
-    /// Completed lines waiting to be grouped into events.
-    lines: LinkedList<String>,
+    /// Scratch buffer used for assembling a single line.
+    ///
+    /// This buffer is reused for every parsed line to avoid repeated
+    /// heap allocations. A fresh empty buffer is obtained via
+    /// `mem::take(&mut self.line_buf)`, filled, processed, and then
+    /// returned (empty) to `self.line_buf` for the next line.
+    line_buf: Vec<u8>,
 
-    /// Iterator cursor over `lines` to find the next event boundary.
-    line_cursor: usize,
+    /// The SSE event currently being constructed from incoming lines.
+    ///
+    /// Every non-blank line updates this pending event. A blank line
+    /// completes the event and moves it into `ready_events`.
+    pending_event: SseEvent,
 
-    /// Tracks the most recent event ID sent by the server.
+    /// A queue of fully constructed SSE events ready to be emitted.
+    ///
+    /// The stream always yields events from this queue before polling the
+    /// underlying HTTP body.
+    ready_events: VecDeque<SseEvent>,
+
+    /// The most recent `id:` field received from the server.
+    ///
+    /// This is updated by each event that includes an `id:` field.
     last_event_id: Option<String>,
 }
 
 impl SseStream {
     /// Create a new SSE stream from an HTTP response.
     pub fn new(response: Response) -> Self {
-        SseStream {
+        Self {
             body: response.body.into_stream(),
-            buffer: Vec::with_capacity(256),
-            lines: LinkedList::new(),
-            line_cursor: 0,
+            buffer: VecDeque::with_capacity(256),
+            line_buf: Vec::with_capacity(256),
+            pending_event: SseEvent::default(),
+            ready_events: VecDeque::new(),
             last_event_id: None,
         }
     }
 
-    /// Create an SSE stream directly from any byte stream.
+    /// Construct an `SseStream` from any byte stream (test-only).
     ///
-    /// This allows unit tests to inject arbitrary frames.
+    /// This allows injecting arbitrary `Bytes` frames for unit tests.
     #[cfg(test)]
     pub(crate) fn from_stream<S>(stream: S) -> Self
     where
@@ -80,163 +106,156 @@ impl SseStream {
         use http_body_util::StreamBody;
 
         let stream = stream.map(|buf| Ok(Frame::data(buf?)));
-        SseStream {
+
+        Self {
             body: BoxBody::new(StreamBody::new(stream)),
-            buffer: Vec::with_capacity(256),
-            lines: LinkedList::new(),
-            line_cursor: 0,
+            buffer: VecDeque::with_capacity(256),
+            line_buf: Vec::with_capacity(256),
+            pending_event: SseEvent::default(),
+            ready_events: VecDeque::new(),
             last_event_id: None,
         }
     }
 
-    /// Returns the last received SSE event ID, if any.
+    /// Retrieve the most recently received SSE event ID, if any.
     pub fn last_event_id(&self) -> Option<&str> {
         self.last_event_id.as_deref()
     }
 
-    /// Append a new frame of bytes into the internal buffer.
-    ///
-    /// This method merges the incoming frame into `self.buffer`, then
-    /// extracts any newly completed lines (terminated by `\n`) and adds
-    /// them into `self.lines`.
+    /// Append raw bytes from a received frame into the internal buffer,
+    /// extract complete `\n`-terminated lines, and process each line into
+    /// SSE event fields.
     fn append_frame(&mut self, mut frame: impl Buf) {
-        let previous_length = self.buffer.len();
+        let old_len = self.buffer.len();
+
         while frame.has_remaining() {
             let chunk = frame.chunk();
-            self.buffer.extend_from_slice(chunk);
+            for &b in chunk {
+                self.buffer.push_back(b);
+            }
             frame.advance(chunk.len());
         }
-        let mut lines = self.take_complete_lines_since(previous_length);
-        self.lines.append(&mut lines);
-    }
 
-    /// Extract all complete lines (ending with `\n`) from the buffer
-    /// starting from `scan_from`.
-    ///
-    /// The extracted lines are removed from `self.buffer` and returned.
-    fn take_complete_lines_since(&mut self, scan_from: usize) -> LinkedList<String> {
-        let mut start = 0;
-        let mut lines = LinkedList::new();
+        let mut processed = 0;
+        for position in old_len..self.buffer.len() {
+            if self.buffer[position] == b'\n' {
+                let start = processed;
+                let end = position;
 
-        for i in scan_from..self.buffer.len() {
-            if self.buffer[i] != b'\n' {
-                continue;
-            }
+                // obtain a temporary empty buffer
+                let mut buf = std::mem::take(&mut self.line_buf);
+                buf.clear();
+                buf.reserve(end - start);
 
-            let line_bytes = &self.buffer[start..i];
-            let line = String::from_utf8_lossy(line_bytes).to_string();
-
-            lines.push_back(line);
-            start = i + 1;
-        }
-
-        // Remove processed bytes.
-        self.buffer.drain(0..start);
-        lines
-    }
-
-    /// Attempt to advance the cursor and extract the next complete SSE event.
-    ///
-    /// An SSE event is defined as a block of one or more lines terminated
-    /// by a blank line (`""`). Returns `None` if no complete event is
-    /// available yet.
-    fn advance_line_cursor(&mut self) -> Option<SseEvent> {
-        let first_empty = self
-            .lines
-            .iter()
-            .enumerate()
-            .skip(self.line_cursor)
-            .find_map(|(index, line)| if line.is_empty() { Some(index) } else { None });
-
-        if first_empty.is_none() {
-            self.line_cursor = self.lines.len();
-        }
-
-        let first_empty = first_empty?;
-        let mut message_lines = self.lines.split_off(first_empty + 1);
-        swap(&mut message_lines, &mut self.lines);
-        self.line_cursor = 0;
-        let event = self.build_event_from_lines(message_lines);
-        Some(event)
-    }
-
-    /// Build an [`SseEvent`] from a list of SSE lines.
-    ///
-    /// Each line is parsed according to SSE field rules (`data:`, `id:`,
-    /// `event:`). Lines beginning with unknown fields are ignored.
-    fn build_event_from_lines(&mut self, message_lines: LinkedList<String>) -> SseEvent {
-        let mut event = SseEvent::default();
-        for line in message_lines {
-            let mut parts = line.splitn(2, ':');
-            let name = parts.next().unwrap_or("");
-            let value = parts.next().map(|v| v.trim_start()).unwrap_or("");
-
-            match name {
-                "data" => {
-                    event.data.push_str(value);
-                    event.data.push('\n');
+                let (s1, s2) = self.buffer.as_slices();
+                if end <= s1.len() {
+                    buf.extend_from_slice(&s1[start..end]);
+                } else if start >= s1.len() {
+                    let s2_start = start - s1.len();
+                    let s2_end = end - s1.len();
+                    buf.extend_from_slice(&s2[s2_start..s2_end]);
+                } else {
+                    buf.extend_from_slice(&s1[start..]);
+                    buf.extend_from_slice(&s2[..(end - s1.len())]);
                 }
-                "id" => {
-                    self.last_event_id = Some(value.to_owned());
-                    event.id = Some(value.to_owned());
-                }
-                "event" => {
-                    event.event = Some(value.to_owned());
-                }
-                _ => {}
+
+                let line = String::from_utf8_lossy(&buf);
+                self.process_line(line.trim_end());
+
+                // return buffer to struct for reuse
+                buf.clear();
+                self.line_buf = buf;
+
+                processed = position + 1;
             }
         }
-        // Remove trailing newline.
-        event.data.pop();
-        event
+
+        for _ in 0..processed {
+            self.buffer.pop_front();
+        }
+    }
+
+    /// Process a single SSE text line.
+    ///
+    /// - A blank line completes the pending event.
+    /// - Other lines update the pending event's fields.
+    fn process_line(&mut self, line: &str) {
+        // Blank line = end of event
+        if line.is_empty() {
+            self.ready_events
+                .push_back(std::mem::take(&mut self.pending_event));
+            return;
+        }
+
+        // Parse `name: value`
+        let mut parts = line.splitn(2, ':');
+        let name = parts.next().unwrap_or("");
+        let value = parts.next().map(|v| v.trim_start()).unwrap_or("");
+
+        match name {
+            "data" => {
+                if !self.pending_event.data.is_empty() {
+                    self.pending_event.data.push('\n');
+                }
+                self.pending_event.data.push_str(value);
+            }
+            "id" => {
+                self.pending_event.id = Some(value.to_owned());
+                self.last_event_id = Some(value.to_owned());
+            }
+            "event" => {
+                self.pending_event.event = Some(value.to_owned());
+            }
+            _ => {} // unknown fields ignored
+        }
+    }
+
+    /// Retrieve the next completed event from the internal queue, if any.
+    fn poll_ready_event(&mut self) -> Option<SseEvent> {
+        self.ready_events.pop_front()
     }
 }
 
 impl Stream for SseStream {
     type Item = Result<SseEvent, Error>;
 
-    /// Poll for the next SSE event.
+    /// Poll the SSE stream for the next event.
     ///
-    /// Attempts to parse and return a complete event if possible.
-    /// Otherwise waits for more data from the underlying response's
-    /// stream.
+    /// Returns:
+    /// - `Poll::Ready(Some(Ok(event)))` when an SSE event is available
+    /// - `Poll::Ready(Some(Err(err)))` if the underlying stream fails
+    /// - `Poll::Ready(None)` when the stream ends with no more events
     #[instrument(skip(self, cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Emit any buffered complete event first.
-        if let Some(event) = self.advance_line_cursor() {
-            return Poll::Ready(Some(Ok(event)));
+        // Emit any queued complete events immediately.
+        if let Some(ev) = self.poll_ready_event() {
+            return Poll::Ready(Some(Ok(ev)));
         }
 
-        // Poll the underlying response body stream.
+        // Poll the underlying HTTP body stream.
         let body = pin!(&mut self.body);
         let data_poll = Body::poll_frame(body, cx);
-        let data_result = ready!(data_poll);
-        let frame = match data_result {
+        let frame_result = ready!(data_poll);
+
+        let frame = match frame_result {
             Some(Ok(frame)) => frame,
-            Some(Err(error)) => {
-                return Poll::Ready(Some(Err(error)));
-            }
-            _ if self.buffer.is_empty() && self.lines.is_empty() => {
-                return Poll::Ready(None);
-            }
-            _ => {
-                if let Some(event) = self.advance_line_cursor() {
-                    return Poll::Ready(Some(Ok(event)));
-                }
-                return Poll::Ready(None);
-            }
+            Some(Err(err)) => return Poll::Ready(Some(Err(err))),
+            None => return Poll::Ready(None), // end of stream
         };
 
-        // Process the new frame.
+        // Accept only DATA frames.
         let Ok(data) = frame.into_data() else {
             cx.waker().wake_by_ref();
             return Poll::Pending;
         };
+
+        // Process the new bytes.
         self.append_frame(data);
 
-        if let Some(event) = self.advance_line_cursor() {
-            return Poll::Ready(Some(Ok(event)));
-        };
+        // If new events were constructed, emit them.
+        if let Some(ev) = self.poll_ready_event() {
+            return Poll::Ready(Some(Ok(ev)));
+        }
 
         cx.waker().wake_by_ref();
         Poll::Pending
