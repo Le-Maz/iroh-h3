@@ -27,7 +27,7 @@
 //! The error types are designed to be **extensible** and **composable**, supporting
 //! common patterns like wrapping in an `Arc` for sharing across async tasks.
 
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 use h3::error::{ConnectionError, StreamError};
 use iroh::{KeyParsingError, endpoint::ConnectError};
@@ -51,9 +51,13 @@ pub enum Error {
     #[error("HTTP error: {0}")]
     Http(#[from] http::Error),
 
+    /// Middleware-specific errors (timeouts, retries, redirect limits, etc.).
+    #[error("Middleware error: {0}")]
+    Middleware(#[from] MiddlewareError),
+
     /// Shared error wrapped in an Arc for safe cloning.
     #[error("{0}")]
-    Shared(#[from] Arc<Self>),
+    Shared(#[from] std::sync::Arc<Self>),
 
     /// Miscellaneous or general-purpose error with a human-readable message.
     #[error("{0}")]
@@ -104,6 +108,26 @@ pub enum TransportError {
     /// Stream-level error (e.g., unexpected frame sequence).
     #[error("Stream error: {0}")]
     Stream(#[from] StreamError),
+}
+
+/// Errors generated specifically by middleware.
+#[derive(Debug, thiserror::Error)]
+pub enum MiddlewareError {
+    /// Request timed out.
+    #[error("Request timed out")]
+    Timeout,
+
+    /// Follow-redirects exceeded the configured maximum number of redirects.
+    #[error("Redirect limit exceeded")]
+    RedirectLimitExceeded,
+
+    /// Retry middleware exhausted all retry attempts.
+    #[error("Retry attempts exceeded, final error: {0}")]
+    RetryLimitExceeded(Box<Error>),
+
+    /// Generic middleware error with a custom message.
+    #[error("{0}")]
+    Other(String),
 }
 
 impl From<Infallible> for Error {

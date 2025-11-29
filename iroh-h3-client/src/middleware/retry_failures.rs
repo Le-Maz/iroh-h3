@@ -17,7 +17,7 @@
 
 use crate::{
     body::Body,
-    error::Error,
+    error::{Error, MiddlewareError},
     middleware::{Middleware, Service},
 };
 use http::{Request, Response, StatusCode};
@@ -101,7 +101,7 @@ impl RetryFailures {
 
                 if *attempts > self.max_retries {
                     warn!("too many retries ({})", self.max_retries);
-                    return Err(err);
+                    return Err(MiddlewareError::RetryLimitExceeded(Box::new(err)).into());
                 }
 
                 *body_slot = Body::empty();

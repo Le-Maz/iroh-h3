@@ -8,7 +8,7 @@ use std::ops::ControlFlow;
 
 use crate::{
     body::Body,
-    error::Error,
+    error::{Error, MiddlewareError},
     middleware::{Middleware, Service},
 };
 use http::{Request, Response, StatusCode, request::Parts};
@@ -120,10 +120,7 @@ impl FollowRedirects {
                         max = self.max_redirects,
                         "too many redirects"
                     );
-                    return Err(Error::Other(format!(
-                        "Too many redirects (> {})",
-                        self.max_redirects
-                    )));
+                    return Err(MiddlewareError::RedirectLimitExceeded.into());
                 }
 
                 // Extract Location
