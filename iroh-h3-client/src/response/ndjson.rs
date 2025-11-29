@@ -66,24 +66,6 @@ use crate::{error::Error, response::Response};
 /// ## Type Parameter
 ///
 /// `T` must implement [`serde::de::DeserializeOwned`].
-///
-/// ## Example
-/// ```
-/// # use your_crate::NdjsonStream;
-/// # use serde::Deserialize;
-/// # use futures::StreamExt;
-/// #[derive(Deserialize, Debug)]
-/// struct Row { id: u64 }
-///
-/// async fn example(response: your_crate::Response) {
-///     let mut stream = NdjsonStream::<Row>::new(response);
-///
-///     while let Some(item) = stream.next().await {
-///         let row = item.unwrap();
-///         println!("{row:?}");
-///     }
-/// }
-/// ```
 pub struct NdjsonStream<T> {
     /// The underlying HTTP body stream producing `Bytes` frames.
     body: BoxBody<Bytes, Error>,

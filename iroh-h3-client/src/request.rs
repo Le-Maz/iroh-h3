@@ -333,4 +333,36 @@ mod tests {
         );
         verify_body(req, |b| b == b"hello").await;
     }
+
+    #[cfg(feature = "json")]
+    #[tokio::test]
+    async fn send_request_with_ndjson() {
+        use futures::stream;
+        use serde_json::Value;
+
+        let (builder, _mock) = builder_with_mock();
+
+        let items = vec![serde_json::json!({"a": 1}), serde_json::json!({"b": 2})];
+        let item_stream = stream::iter(items.clone());
+
+        let req = builder.ndjson(item_stream).unwrap();
+
+        assert_eq!(
+            req.inner.headers().get("content-type"),
+            Some(&http::HeaderValue::from_static("application/x-ndjson"))
+        );
+
+        verify_body(req, |body_bytes| {
+            let body_str = std::str::from_utf8(&body_bytes).expect("body is valid UTF-8");
+            let lines: Vec<&str> = body_str.lines().collect();
+
+            let parsed: Vec<Value> = lines
+                .into_iter()
+                .map(|line| serde_json::from_str(line).expect("valid JSON line"))
+                .collect();
+
+            parsed == items
+        })
+        .await;
+    }
 }
