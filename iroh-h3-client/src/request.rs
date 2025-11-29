@@ -9,6 +9,8 @@
 //! - Automatic setting of appropriate `Content-Type` headers
 
 use bytes::Bytes;
+#[cfg(feature = "json")]
+use futures::Stream;
 use http::request::Builder;
 use http::{HeaderValue, header::CONTENT_TYPE};
 #[cfg(feature = "json")]
@@ -134,6 +136,43 @@ impl RequestBuilder {
         let body = serde_json::to_vec(data).map_err(|err| Error::RequestValidation(err.into()))?;
         self.ensure_content_type(MIME_JSON)
             .body(Body::bytes(Bytes::from(body)))
+    }
+
+    /// Sets the body of the request to NDJSON-serialized data from a stream.
+    ///
+    /// NDJSON (Newline-Delimited JSON) is a format where each JSON object is
+    /// written on a single line, separated by `\n`. This method consumes a
+    /// [`Stream`] of serializable items, serializes each one, and appends a
+    /// newline between them.
+    ///
+    /// The `Content-Type` header is automatically set to `"application/x-ndjson"`
+    /// if it is not already present.
+    ///
+    /// Requires the `"json"` feature.
+    #[cfg(feature = "json")]
+    #[inline]
+    pub fn ndjson<T: Serialize>(
+        self,
+        data: impl Stream<Item = T> + Unpin + Send + Sync + 'static,
+    ) -> Result<Request, Error> {
+        use futures::stream::StreamExt;
+        use http_body_util::{StreamBody, combinators::BoxBody};
+
+        const MIME_NDJSON: HeaderValue = HeaderValue::from_static("application/x-ndjson");
+
+        let stream = data.map(|item| {
+            use http_body::Frame;
+
+            let mut buffer =
+                serde_json::to_vec(&item).map_err(|err| Error::RequestValidation(err.into()))?;
+            buffer.push(b'\n');
+
+            Ok::<_, Error>(Frame::data(Bytes::from(buffer)))
+        });
+
+        let body = BoxBody::new(StreamBody::new(stream));
+
+        self.ensure_content_type(MIME_NDJSON).body(Body::from(body))
     }
 
     /// Sends the request with an empty body.

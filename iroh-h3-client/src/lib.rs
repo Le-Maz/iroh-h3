@@ -22,7 +22,7 @@
 //! All operations return a crate-specific [`Error`] type that can represent connection, stream,
 //! serialization, or protocol-level errors.
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 mod body;
 mod connection_manager;
