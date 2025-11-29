@@ -41,6 +41,13 @@ pub struct Response {
     pub(crate) body: Body,
 }
 
+impl From<http::Response<Body>> for Response {
+    fn from(value: http::Response<Body>) -> Self {
+        let (inner, body) = value.into_parts();
+        Self { inner, body }
+    }
+}
+
 impl Deref for Response {
     type Target = http::response::Parts;
 
@@ -63,9 +70,9 @@ impl Response {
     ///
     /// # Example
     /// ```rust
-    /// # use iroh_h3_client::request::Request;
+    /// # use iroh_h3_client::request::ClientRequest;
     ///
-    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn example(request: ClientRequest) -> Result<(), Box<dyn std::error::Error>> {
     ///
     /// let mut response = request.send().await?;
     /// let body = response.bytes().await?;
@@ -102,9 +109,9 @@ impl Response {
     ///
     /// # Example
     /// ```rust
-    /// # use iroh_h3_client::request::Request;
+    /// # use iroh_h3_client::request::ClientRequest;
     ///
-    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn example(request: ClientRequest) -> Result<(), Box<dyn std::error::Error>> {
     ///
     /// let mut response = request.send().await?;
     /// let text = response.text().await?;
@@ -145,9 +152,9 @@ impl Response {
     /// #[derive(serde::Deserialize)]
     /// struct ApiResponse { message: String }
     ///
-    /// # use iroh_h3_client::request::Request;
+    /// # use iroh_h3_client::request::ClientRequest;
     ///
-    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn example(request: ClientRequest) -> Result<(), Box<dyn std::error::Error>> {
     ///
     /// let mut response = request.send().await?;
     /// let data: ApiResponse = response.json().await?;
@@ -181,9 +188,9 @@ impl Response {
     /// # Example
     /// ```rust
     /// use futures::StreamExt;
-    /// # use iroh_h3_client::request::Request;
+    /// # use iroh_h3_client::request::ClientRequest;
     ///
-    /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn example(request: ClientRequest) -> Result<(), Box<dyn std::error::Error>> {
     /// let mut response = request.send().await?;
     /// let mut stream = response.bytes_stream();
     ///

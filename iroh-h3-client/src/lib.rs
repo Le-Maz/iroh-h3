@@ -102,7 +102,7 @@ macro_rules! http_method {
         ///
         /// This is equivalent to calling [`IrohH3Client::request`] with the
         /// corresponding [`Method`].
-        pub fn $name<U>(&self, uri: U) -> RequestBuilder
+        pub fn $name<U>(&self, uri: U) -> RequestBuilder<Self>
         where
             U: TryInto<Uri>,
             http::Error: From<<U as TryInto<Uri>>::Error>,
@@ -164,7 +164,7 @@ impl IrohH3Client {
     /// let req = client.request(http::Method::PUT, "iroh+h3://peer/some/path").build();
     /// # }
     /// ```
-    pub fn request<U>(&self, method: http::Method, uri: U) -> RequestBuilder
+    pub fn request<U>(&self, method: http::Method, uri: U) -> RequestBuilder<Self>
     where
         U: TryInto<Uri>,
         http::Error: From<<U as TryInto<Uri>>::Error>,
@@ -181,12 +181,11 @@ impl IrohH3Client {
     http_method!(put, Method::PUT);
     http_method!(patch, Method::PATCH);
     http_method!(delete, Method::DELETE);
+}
 
-    /// Sends an HTTP/3 request and awaits the response.
+impl Service for IrohH3Client {
     #[tracing::instrument(skip(self))]
-    async fn send(&self, request: http::Request<Body>) -> Result<crate::response::Response, Error> {
-        let response = self.inner.service.handle(request).await?;
-        let (inner, body) = response.into_parts();
-        Ok(crate::response::Response { inner, body })
+    async fn handle(&self, request: http::Request<Body>) -> Result<http::Response<Body>, Error> {
+        self.inner.service.handle(request).await
     }
 }

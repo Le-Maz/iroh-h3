@@ -9,13 +9,14 @@
 //! - `Middleware`: Wraps a `Service` and can modify requests or responses.
 //! - `Pipeline`: A dynamic boxed service used inside `IrohH3Client`.
 
-pub mod follow_redirects;
 pub mod cookie_jar;
+pub mod follow_redirects;
 pub mod retry_failures;
 pub mod timeout;
 
 use futures::future::BoxFuture;
 use http::{Request, Response};
+use mockall::automock;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ use crate::{body::Body, error::Error};
 ///
 /// Services receive an HTTP request and produce a future resolving to an HTTP response or an error.
 /// This is similar to Tower's `Service` trait, but simplified for `&self` usage and dynamic composition.
+#[automock]
 pub trait Service: Send + Sync {
     /// Handles a request asynchronously.
     ///

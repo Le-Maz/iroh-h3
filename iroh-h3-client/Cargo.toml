@@ -27,6 +27,7 @@ cookie = { version = "0.18.1", features = ["percent-encode"] }
 # JSON support
 serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
+mockall = "0.14.0"
 
 [features]
 default = []

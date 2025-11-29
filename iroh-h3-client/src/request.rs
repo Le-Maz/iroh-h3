@@ -17,8 +17,13 @@ use http::{HeaderValue, header::CONTENT_TYPE};
 use serde::Serialize;
 use tracing::instrument;
 
+use crate::IrohH3Client;
 use crate::body::Body;
-use crate::{IrohH3Client, error::Error, response::Response};
+use crate::middleware::Service;
+use crate::{error::Error, response::Response};
+
+/// Alias to the Request with its client set to IrohH3Client
+pub type ClientRequest = Request<IrohH3Client>;
 
 /// A builder for constructing HTTP/3 requests.
 ///
@@ -27,12 +32,12 @@ use crate::{IrohH3Client, error::Error, response::Response};
 /// request body in various formats.
 #[derive(Debug)]
 #[must_use]
-pub struct RequestBuilder {
+pub struct RequestBuilder<C: Service> {
     pub(crate) inner: Builder,
-    pub(crate) client: IrohH3Client,
+    pub(crate) client: C,
 }
 
-impl RequestBuilder {
+impl<C: Service> RequestBuilder<C> {
     /// Adds an extension to the request.
     #[inline]
     pub fn extension<T>(mut self, extension: T) -> Self
@@ -58,7 +63,7 @@ impl RequestBuilder {
 
     /// Builds a request with the given body.
     #[inline]
-    pub fn body(self, body: Body) -> Result<Request, Error> {
+    pub fn body(self, body: Body) -> Result<Request<C>, Error> {
         let request = self.inner.body(body)?;
         Ok(Request {
             inner: request,
@@ -68,7 +73,7 @@ impl RequestBuilder {
 
     /// Builds a request with an empty body.
     #[inline]
-    pub fn build(self) -> Result<Request, Error> {
+    pub fn build(self) -> Result<Request<C>, Error> {
         self.body(Body::empty())
     }
 
@@ -99,7 +104,7 @@ impl RequestBuilder {
     /// # Errors
     /// Returns an [`Error`] if the request cannot be constructed.
     #[inline]
-    pub fn text(self, text: impl AsRef<str>) -> Result<Request, Error> {
+    pub fn text(self, text: impl AsRef<str>) -> Result<Request<C>, Error> {
         const MIME_TEXT: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
 
         let body_bytes = Bytes::copy_from_slice(text.as_ref().as_bytes());
@@ -115,7 +120,7 @@ impl RequestBuilder {
     /// # Errors
     /// Returns an [`Error`] if the request cannot be constructed.
     #[inline]
-    pub fn bytes(self, bytes: impl Into<Bytes>) -> Result<Request, Error> {
+    pub fn bytes(self, bytes: impl Into<Bytes>) -> Result<Request<C>, Error> {
         const MIME_BIN: HeaderValue = HeaderValue::from_static("application/octet-stream");
 
         self.ensure_content_type(MIME_BIN)
@@ -130,7 +135,7 @@ impl RequestBuilder {
     /// Requires the `"json"` feature.
     #[cfg(feature = "json")]
     #[inline]
-    pub fn json<T: Serialize>(self, data: &T) -> Result<Request, Error> {
+    pub fn json<T: Serialize>(self, data: &T) -> Result<Request<C>, Error> {
         const MIME_JSON: HeaderValue = HeaderValue::from_static("application/json");
 
         let body = serde_json::to_vec(data).map_err(|err| Error::RequestValidation(err.into()))?;
@@ -154,7 +159,7 @@ impl RequestBuilder {
     pub fn ndjson<T: Serialize>(
         self,
         data: impl Stream<Item = T> + Unpin + Send + Sync + 'static,
-    ) -> Result<Request, Error> {
+    ) -> Result<Request<C>, Error> {
         use futures::stream::StreamExt;
         use http_body_util::{StreamBody, combinators::BoxBody};
 
@@ -186,23 +191,146 @@ impl RequestBuilder {
 /// Represents an HTTP/3 request constructed by [`RequestBuilder`].
 #[must_use]
 #[derive(Debug)]
-pub struct Request {
+pub struct Request<C: Service> {
     inner: http::Request<Body>,
-    client: IrohH3Client,
+    client: C,
 }
 
-impl Request {
+impl<C: Service> Request<C> {
     /// Sends this request using the associated [`IrohH3Client`].
     #[inline]
     #[instrument(skip(self))]
     pub async fn send(self) -> Result<Response, Error> {
-        let response = self.client.send(self.inner).await?;
-        Ok(response)
+        let response = self.client.handle(self.inner).await?;
+        Ok(response.into())
     }
 }
 
-impl From<Request> for http::Request<Body> {
-    fn from(value: Request) -> Self {
+impl<C: Service> From<Request<C>> for http::Request<Body> {
+    fn from(value: Request<C>) -> Self {
         value.inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        body::Body,
+        error::Error,
+        middleware::{MockService, Service},
+        request::{Request, RequestBuilder},
+    };
+    use http::{HeaderValue, Request as HttpRequest, Response as HttpResponse};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    type SharedMockService = Arc<Mutex<MockService>>;
+
+    impl Service for SharedMockService {
+        async fn handle(&self, request: HttpRequest<Body>) -> Result<HttpResponse<Body>, Error> {
+            self.lock().await.handle(request).await
+        }
+    }
+
+    fn builder_with_mock() -> (RequestBuilder<SharedMockService>, SharedMockService) {
+        let mock_service = Arc::new(Mutex::new(MockService::new()));
+        let builder = RequestBuilder {
+            inner: http::Request::builder(),
+            client: mock_service.clone(),
+        };
+        (builder, mock_service)
+    }
+
+    async fn verify_body(
+        mut request: Request<SharedMockService>,
+        predicate: impl Fn(&[u8]) -> bool,
+    ) {
+        let body_bytes = request.inner.body_mut().take().into_bytes().await.unwrap();
+        assert!(predicate(&body_bytes));
+    }
+
+    #[tokio::test]
+    async fn set_header() {
+        let (builder, _mock) = builder_with_mock();
+        let builder = builder.header("X-Test", "value");
+        let req = builder.build().unwrap();
+        assert_eq!(
+            req.inner.headers().get("X-Test"),
+            Some(&HeaderValue::from_static("value"))
+        );
+    }
+
+    #[tokio::test]
+    async fn add_extension() {
+        #[derive(Clone)]
+        struct MyExtension;
+        let (builder, _mock) = builder_with_mock();
+        let builder = builder.extension(MyExtension);
+        let req = builder.build().unwrap();
+        assert!(req.inner.extensions().get::<MyExtension>().is_some());
+    }
+
+    #[tokio::test]
+    async fn text_body_sets_content_type() {
+        let (builder, _mock) = builder_with_mock();
+        let req = builder.text("hello world").unwrap();
+        assert_eq!(
+            req.inner.headers().get("content-type"),
+            Some(&HeaderValue::from_static("text/plain; charset=utf-8"))
+        );
+        verify_body(req, |b| b == b"hello world").await;
+    }
+
+    #[tokio::test]
+    async fn bytes_body_sets_content_type() {
+        let (builder, _mock) = builder_with_mock();
+        let data = b"abc".to_vec();
+        let req = builder.bytes(data.clone()).unwrap();
+        assert_eq!(
+            req.inner.headers().get("content-type"),
+            Some(&HeaderValue::from_static("application/octet-stream"))
+        );
+        verify_body(req, |b| b == b"abc").await;
+    }
+
+    #[tokio::test]
+    async fn build_empty_body() {
+        let (builder, _mock) = builder_with_mock();
+        let req = builder.build().unwrap();
+        verify_body(req, |b| b.is_empty()).await;
+    }
+
+    #[tokio::test]
+    async fn send_request_calls_service() {
+        let (builder, mock_service) = builder_with_mock();
+
+        {
+            let mut mock = mock_service.lock().await;
+            mock.expect_handle().times(1).returning(|mut req| {
+                Box::pin(async move {
+                    Ok(HttpResponse::builder()
+                        .status(200)
+                        .body(req.body_mut().take())
+                        .unwrap())
+                })
+            });
+        }
+
+        let req = builder.text("hello").unwrap();
+        let resp = req.send().await.unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.bytes().await.unwrap().to_vec(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn ensure_content_type_no_overwriting() {
+        let (builder, _mock) = builder_with_mock();
+        let builder = builder.header("content-type", "custom/type");
+        let req = builder.text("hello").unwrap();
+        assert_eq!(
+            req.inner.headers().get("content-type"),
+            Some(&HeaderValue::from_static("custom/type"))
+        );
+        verify_body(req, |b| b == b"hello").await;
     }
 }
