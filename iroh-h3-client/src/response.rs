@@ -9,6 +9,8 @@
 //! - JSON deserialization when the `json` feature is enabled
 //! - UTF-8 validation for text responses
 
+#[cfg(feature = "json")]
+pub mod ndjson;
 pub mod sse;
 
 use std::ops::Deref;
@@ -64,11 +66,11 @@ impl Response {
     /// # use iroh_h3_client::request::Request;
     ///
     /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
-    /// 
+    ///
     /// let mut response = request.send().await?;
     /// let body = response.bytes().await?;
     /// println!("Response body: {:?}", body);
-    /// 
+    ///
     /// # Ok(())
     /// # }
     /// ```
@@ -103,11 +105,11 @@ impl Response {
     /// # use iroh_h3_client::request::Request;
     ///
     /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
-    /// 
+    ///
     /// let mut response = request.send().await?;
     /// let text = response.text().await?;
     /// println!("Response: {}", text);
-    /// 
+    ///
     /// # Ok(())
     /// # }
     /// ```
@@ -146,11 +148,11 @@ impl Response {
     /// # use iroh_h3_client::request::Request;
     ///
     /// # async fn example(request: Request) -> Result<(), Box<dyn std::error::Error>> {
-    /// 
+    ///
     /// let mut response = request.send().await?;
     /// let data: ApiResponse = response.json().await?;
     /// println!("Message: {}", data.message);
-    /// 
+    ///
     /// # Ok(())
     /// # }
     /// ```
@@ -200,6 +202,15 @@ impl Response {
     #[instrument(skip(self))]
     pub fn sse_stream(self) -> impl Stream<Item = Result<SseEvent, Error>> {
         SseStream::new(self)
+    }
+
+    /// Returns a stream of NDJSON
+    #[cfg(feature = "json")]
+    #[instrument(skip(self))]
+    pub fn ndjson_stream<T: DeserializeOwned>(self) -> impl Stream<Item = Result<T, Error>> {
+        use crate::response::ndjson::NdjsonStream;
+
+        NdjsonStream::new(self)
     }
 }
 
