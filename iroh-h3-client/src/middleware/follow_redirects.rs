@@ -4,7 +4,7 @@
 //! - 301, 302, 303 → method changed to GET, body dropped
 //! - 307, 308 → same method, body is cloned if possible
 
-use std::{mem::take, ops::ControlFlow};
+use std::ops::ControlFlow;
 
 use crate::{
     body::Body,
@@ -95,13 +95,10 @@ impl FollowRedirects {
         redirects: &mut usize,
         next: &impl Service,
     ) -> Result<ControlFlow<Response<Body>>, Error> {
-        // Try to clone, else move out of slot
-        let body = body_slot.try_clone().unwrap_or_else(|| take(body_slot));
-
         debug!("sending request");
 
         let response = next
-            .handle(Request::from_parts(parts.clone(), body))
+            .handle(Request::from_parts(parts.clone(), body_slot.take()))
             .await?;
 
         let status = response.status();

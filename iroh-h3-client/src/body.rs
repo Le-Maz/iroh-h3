@@ -45,11 +45,11 @@ impl Body {
         }
     }
 
-    pub fn try_clone(&self) -> Option<Self> {
-        match &self.inner {
-            Inner::Bytes(bytes) => Some(Self::bytes(bytes.clone())),
-            Inner::Stream(_) => None,
-        }
+    pub fn take(&mut self) -> Self {
+        if let Inner::Bytes(bytes) = &self.inner {
+            return Self::bytes(bytes.clone());
+        };
+        std::mem::take(self)
     }
 }
 
