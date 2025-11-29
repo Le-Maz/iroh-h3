@@ -11,6 +11,7 @@
 
 pub mod follow_redirects;
 pub mod cookie_jar;
+pub mod retry_failures;
 
 use futures::future::BoxFuture;
 use http::{Request, Response};
