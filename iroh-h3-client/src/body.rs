@@ -5,24 +5,28 @@ use tracing::instrument;
 
 use crate::error::Error;
 
+/// An HTTP/3 body that can be either a fixed set of bytes or a streaming body.
 #[derive(Debug, Default)]
 pub struct Body {
     inner: Inner,
 }
 
 impl Body {
+    /// Create an empty body.
     pub fn empty() -> Self {
         Self {
             inner: Inner::Bytes(Bytes::new()),
         }
     }
 
+    /// Create a body from the given bytes.
     pub fn bytes(bytes: Bytes) -> Self {
         Self {
             inner: Inner::Bytes(bytes),
         }
     }
 
+    /// Consume the body and return its contents as bytes.
     #[instrument]
     pub async fn into_bytes(self) -> Result<Bytes, Error> {
         match self.inner {
@@ -38,6 +42,7 @@ impl Body {
         }
     }
 
+    /// Consume the body and return it as a streaming body.
     pub fn into_stream(self) -> BoxBody<Bytes, Error> {
         match self.inner {
             Inner::Stream(box_body) => box_body,
@@ -45,6 +50,7 @@ impl Body {
         }
     }
 
+    /// Take the body, replacing it with an empty body.
     pub fn take(&mut self) -> Self {
         if let Inner::Bytes(bytes) = &self.inner {
             return Self::bytes(bytes.clone());
