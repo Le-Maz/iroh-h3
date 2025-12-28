@@ -35,10 +35,10 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use http::request::Builder;
-use http::{Method, Uri};
+pub use http::{Method, Request, Response, Uri};
 use iroh::Endpoint;
 
-use crate::body::Body;
+pub use crate::body::Body;
 use crate::connection_manager::ConnectionManager;
 use crate::error::Error;
 use crate::middleware::{Middleware, Pipeline, Service};
