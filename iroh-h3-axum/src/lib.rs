@@ -33,6 +33,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use iroh_h3::{Connection as IrohH3Connection, RecvStream};
+use n0_future::task; // unifies wasm/tokio task spawning.
 use tower_service::Service;
 
 /// Type alias for the HTTP/3 server-side connection using iroh QUIC transport.
@@ -78,7 +79,7 @@ impl IrohAxum {
     ) {
         let router = self.router.clone();
 
-        tokio::spawn(async move {
+        task::spawn(async move {
             let mut router = router;
 
             let (request, stream) = request_resolver.resolve_request().await?;

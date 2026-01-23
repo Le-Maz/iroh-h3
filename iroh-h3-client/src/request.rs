@@ -222,7 +222,8 @@ mod tests {
     };
     use http::{HeaderValue, Request as HttpRequest, Response as HttpResponse};
     use std::sync::Arc;
-    use tokio::sync::Mutex;
+    // use tokio::sync::Mutex;
+    use n0_future::sync::Mutex; // unifies wasm/tokio usage
 
     type SharedMockService = Arc<Mutex<MockService>>;
 
