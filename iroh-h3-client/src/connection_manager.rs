@@ -17,6 +17,7 @@ use http_body_util::BodyExt;
 use iroh::{Endpoint, EndpointId};
 use iroh_h3::BidiStream;
 use iroh_h3::{Connection as IrohH3Connection, OpenStreams};
+use n0_future::task; // unifies wasm/tokio task spawning.
 use tracing::instrument;
 use tracing::trace;
 use tracing::warn;
@@ -119,7 +120,7 @@ impl ConnectionManager {
                 .map_err(Arc::new)?;
 
             // Cleanup task when connection closes
-            tokio::spawn(self_clone.run_connection(conn, peer_id));
+            task::spawn(self_clone.run_connection(conn, peer_id));
 
             Ok(sender)
         });
