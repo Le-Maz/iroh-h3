@@ -11,7 +11,7 @@ use crate::{
 };
 use http::{Request, Response};
 use std::time::Duration;
-use tokio::time;
+use n0_future::time;
 use tracing::{debug, instrument};
 
 /// Middleware that applies a timeout to each request.
@@ -75,7 +75,7 @@ mod tests {
     impl Service for MockService {
         async fn handle(&self, _req: Request<Body>) -> Result<Response<Body>, Error> {
             if self.delay_ms > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+                n0_future::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
             }
             self.results.lock().unwrap().remove(0)
         }
