@@ -701,6 +701,7 @@ dependencies = [
  "iroh",
  "iroh-h3-axum",
  "iroh-h3-client",
+ "n0-future",
  "serde",
  "serde_json",
  "tokio",
