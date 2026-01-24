@@ -1474,6 +1474,7 @@ dependencies = [
  "n0-future",
  "tokio",
  "tower-service",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
