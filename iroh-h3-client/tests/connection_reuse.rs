@@ -1,9 +1,7 @@
-use std::time::Instant;
-
 use example::mock_discovery::MockDiscoveryMap;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
-use n0_future::task::JoinSet;
+use n0_future::{task::JoinSet, time::Instant};
 
 use axum::{Router, routing::post};
 use wasm_bindgen_test::wasm_bindgen_test;
