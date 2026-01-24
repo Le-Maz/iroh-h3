@@ -3,8 +3,7 @@ use std::time::Instant;
 use example::mock_discovery::MockDiscoveryMap;
 use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
-// use tokio::task::JoinSet;
-use n0_future::task::JoinSet; // unifies wasm/tokio task spawning.
+use n0_future::task::JoinSet;
 
 use axum::{Router, routing::post};
 

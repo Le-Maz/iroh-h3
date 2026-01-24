@@ -32,6 +32,12 @@ serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
 mockall = "0.14.0"
 
+[dev-dependencies]
+example = { path = "../example" }
+iroh-h3-axum = { path = "../iroh-h3-axum" }
+axum = { version = "0.8.6", features = ["json"], default-features = false }
+wasm-bindgen-test = "0.3.58"
+
 [features]
 default = []
 json = ["serde", "serde_json"]

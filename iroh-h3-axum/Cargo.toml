@@ -23,3 +23,7 @@ http-body = "1.0"
 
 # Use n0-futures to support both OS and WASM/web use
 n0-future = "0.3.2"
+
+[dev-dependencies]
+example = { path = "../example" }
+iroh-h3-client = { version = "0.2.0", path = "../iroh-h3-client", features = ["json"] }

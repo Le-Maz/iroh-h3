@@ -4,6 +4,7 @@ use iroh_h3_axum::IrohAxum;
 use iroh_h3_client::IrohH3Client;
 
 use serde::{Deserialize, Serialize};
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const ALPN: &[u8] = b"iroh+h3";
 

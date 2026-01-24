@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    pin::Pin,
     sync::{Arc, RwLock},
 };
 
@@ -8,6 +9,7 @@ use iroh::{
     Endpoint, EndpointId,
     discovery::{Discovery, DiscoveryItem, EndpointData, EndpointInfo, IntoDiscovery},
 };
+use n0_future::Stream;
 
 #[derive(Debug, Default, Clone)]
 pub struct MockDiscoveryMap {
@@ -53,6 +55,14 @@ impl MockDiscovery {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+type BoxStream = Pin<
+    Box<dyn Stream<Item = Result<DiscoveryItem, iroh::discovery::DiscoveryError>> + Send + 'static>,
+>;
+#[cfg(target_family = "wasm")]
+type BoxStream =
+    Pin<Box<dyn Stream<Item = Result<DiscoveryItem, iroh::discovery::DiscoveryError>> + 'static>>;
+
 impl Discovery for MockDiscovery {
     fn publish(&self, data: &EndpointData) {
         self.map
@@ -62,14 +72,7 @@ impl Discovery for MockDiscovery {
             .insert(self.id, Arc::new(data.clone()));
     }
 
-    fn resolve(
-        &self,
-        endpoint_id: EndpointId,
-    ) -> Option<
-        futures_lite::stream::Boxed<
-            Result<iroh::discovery::DiscoveryItem, iroh::discovery::DiscoveryError>,
-        >,
-    > {
+    fn resolve(&self, endpoint_id: EndpointId) -> Option<BoxStream> {
         let data = self.map.peers.read().unwrap().get(&endpoint_id).cloned()?;
 
         let ip_addrs = data.ip_addrs().cloned().collect();
