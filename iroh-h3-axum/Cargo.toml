@@ -1,6 +1,6 @@
 [package]
 name = "iroh-h3-axum"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Axum integration for serving and consuming HTTP/3 over the Iroh QUIC P2P transport."
 license = "MIT"
@@ -26,5 +26,5 @@ n0-future = "0.3.2"
 
 [dev-dependencies]
 example = { path = "../example" }
-iroh-h3-client = { version = "0.2.0", path = "../iroh-h3-client", features = ["json"] }
+iroh-h3-client = { path = "../iroh-h3-client", features = ["json"] }
 wasm-bindgen-test = "0.3.58"
