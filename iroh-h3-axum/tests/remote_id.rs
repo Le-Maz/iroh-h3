@@ -1,14 +1,16 @@
+use axum::{Router, extract::State, response::IntoResponse, routing::get};
 use example::mock_discovery::MockDiscoveryMap;
 use iroh::EndpointId;
 use iroh_h3_axum::{IrohAxum, RemoteId};
 use iroh_h3_client::IrohH3Client;
-
-use axum::{Router, extract::State, response::IntoResponse, routing::get};
+use wasm_bindgen_test::wasm_bindgen_test;
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const ALPN: &[u8] = b"iroh+h3";
 
 /// RemoteId extraction
-#[tokio::test]
+#[cfg_attr(not(target_family = "wasm"), tokio::test)]
+#[wasm_bindgen_test]
 async fn remote_id_extraction() {
     let discovery = MockDiscoveryMap::new();
     let endpoint_1 = discovery.spawn_endpoint().await;

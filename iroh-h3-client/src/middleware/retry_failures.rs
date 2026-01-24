@@ -21,6 +21,7 @@ use crate::{
     middleware::{Middleware, Service},
 };
 use http::{Request, Response, StatusCode};
+use n0_future::time; // unifies wasm/tokio task spawning.
 use std::ops::ControlFlow;
 use tracing::{debug, instrument, warn};
 
@@ -89,7 +90,7 @@ impl RetryFailures {
                 if self.base_delay_ms > 0 {
                     let delay = self.base_delay_ms * 2_u64.pow((*attempts - 1) as u32);
                     debug!(ms = delay, "waiting before next retry");
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    time::sleep(std::time::Duration::from_millis(delay)).await;
                 }
 
                 Ok(ControlFlow::Continue(()))
@@ -109,7 +110,7 @@ impl RetryFailures {
                 if self.base_delay_ms > 0 {
                     let delay = self.base_delay_ms * 2_u64.pow((*attempts - 1) as u32);
                     debug!(ms = delay, "waiting before next retry");
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    time::sleep(std::time::Duration::from_millis(delay)).await;
                 }
 
                 Ok(ControlFlow::Continue(()))

@@ -1,20 +1,22 @@
 use std::convert::Infallible;
 
-use example::mock_discovery::MockDiscoveryMap;
-use futures::{StreamExt, stream::repeat};
-use iroh_h3_axum::IrohAxum;
-use iroh_h3_client::IrohH3Client;
-
 use axum::{
     Router,
     response::{IntoResponse, Sse, sse::Event},
     routing::get,
 };
+use example::mock_discovery::MockDiscoveryMap;
+use futures::{StreamExt, stream::repeat};
+use iroh_h3_axum::IrohAxum;
+use iroh_h3_client::IrohH3Client;
+use wasm_bindgen_test::wasm_bindgen_test;
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const ALPN: &[u8] = b"iroh+h3";
 
 /// Server-Sent Events
-#[tokio::test]
+#[cfg_attr(not(target_family = "wasm"), tokio::test)]
+#[wasm_bindgen_test]
 async fn sse_stream() {
     let discovery = MockDiscoveryMap::new();
     let endpoint_1 = discovery.spawn_endpoint().await;
@@ -48,7 +50,8 @@ async fn sse_stream() {
     assert_eq!(counter, 10);
 }
 
-#[tokio::test]
+#[cfg_attr(not(target_family = "wasm"), tokio::test)]
+#[wasm_bindgen_test]
 async fn sse_stream_edge_cases() {
     use futures::stream::{self, StreamExt};
 
