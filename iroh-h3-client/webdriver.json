@@ -1,19 +1,7 @@
 {
     "moz:firefoxOptions": {
         "prefs": {
-            "media.navigator.streams.fake": true,
-            "media.navigator.permission.disabled": true,
-            "network.websocket.allowInsecureFromHTTPS": true,
-            "network.proxy.type": 0,
-            "network.manage-offline-status": false,
-            "security.mixed_content.block_active_content": false,
-            "security.mixed_content.block_display_content": false,
-            "privacy.trackingprotection.enabled": false,
-            "privacy.trackingprotection.pbmode.enabled": false,
-            "privacy.trackingprotection.annotated_domains.enabled": false,
-            "network.dns.disableIPv6": true,
-            "network.captive-portal-service.enabled": false,
-            "widget.disable-workspace-management": true
+            "network.websocket.allowInsecureFromHTTPS": true
         },
         "args": []
     },
