@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
 };
 use bytes::Bytes;
-use example::mock_discovery::MockDiscoveryMap;
+use example::mock_discovery::MockAddressLookupMap;
 use futures::StreamExt;
 use http_body::Frame;
 use http_body_util::{StreamBody, combinators::BoxBody};
@@ -22,7 +22,7 @@ const ALPN: &[u8] = b"iroh+h3";
 #[cfg_attr(not(target_family = "wasm"), tokio::test)]
 #[wasm_bindgen_test]
 async fn streaming_response() {
-    let discovery = MockDiscoveryMap::new();
+    let discovery = MockAddressLookupMap::new();
     let endpoint_1 = discovery.spawn_endpoint().await;
     let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;
@@ -56,7 +56,7 @@ async fn streaming_response() {
 #[cfg_attr(not(target_family = "wasm"), tokio::test)]
 #[wasm_bindgen_test]
 async fn streaming_request_body() {
-    let discovery = MockDiscoveryMap::new();
+    let discovery = MockAddressLookupMap::new();
     let endpoint_1 = discovery.spawn_endpoint().await;
     let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;

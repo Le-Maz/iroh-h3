@@ -1,6 +1,6 @@
 [package]
 name = "iroh-h3-axum"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Axum integration for serving and consuming HTTP/3 over the Iroh QUIC P2P transport."
 license = "MIT"
@@ -10,11 +10,11 @@ keywords = ["axum", "quic", "http3", "p2p", "iroh"]
 categories = ["network-programming", "asynchronous", "web-programming"]
 
 [dependencies]
-iroh-h3 = { version = "0.1.0", path = "../iroh-h3" }
+iroh-h3 = { version = "0.1.1", path = "../iroh-h3" }
 bytes = "1.10"
 futures-lite = "2.6"
 h3 = "0.0.8"
-iroh = "0.95.1"
+iroh = "0.96.1"
 tokio = { version = "1.48", features = ["rt"], default-features = false }
 axum = { version = "0.8.6", default-features = false }
 http = "1.3"

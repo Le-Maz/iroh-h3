@@ -426,7 +426,7 @@ impl quic::RecvStream for RecvStream {
     ) -> Poll<Result<Option<Self::Buf>, StreamErrorIncoming>> {
         if let Some(mut stream) = self.stream.take() {
             self.read_chunk_fut.set(async move {
-                let chunk = stream.read_chunk(usize::MAX, true).await;
+                let chunk = stream.read_chunk(usize::MAX).await;
                 (stream, chunk)
             })
         };
@@ -466,7 +466,6 @@ fn convert_read_error_to_stream_error(error: ReadError) -> StreamErrorIncoming {
             }
         }
         error @ ReadError::ClosedStream => StreamErrorIncoming::Unknown(Box::new(error)),
-        ReadError::IllegalOrderedRead => panic!("h3-quinn only performs ordered reads"),
         error @ ReadError::ZeroRttRejected => StreamErrorIncoming::Unknown(Box::new(error)),
     }
 }

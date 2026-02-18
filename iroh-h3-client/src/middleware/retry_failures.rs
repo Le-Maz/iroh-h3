@@ -154,8 +154,9 @@ mod tests {
     use http::{Response, StatusCode};
     use std::sync::{Arc, Mutex};
 
+    type ResultsInner = Vec<Result<Response<Body>, Error>>;
     struct MockService {
-        results: Arc<Mutex<Vec<Result<Response<Body>, Error>>>>,
+        results: Arc<Mutex<ResultsInner>>,
     }
 
     impl MockService {

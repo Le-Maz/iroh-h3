@@ -1,5 +1,5 @@
 use axum::{Router, extract::State, response::IntoResponse, routing::get};
-use example::mock_discovery::MockDiscoveryMap;
+use example::mock_discovery::MockAddressLookupMap;
 use iroh::EndpointId;
 use iroh_h3_axum::{IrohAxum, RemoteId};
 use iroh_h3_client::IrohH3Client;
@@ -12,7 +12,7 @@ const ALPN: &[u8] = b"iroh+h3";
 #[cfg_attr(not(target_family = "wasm"), tokio::test)]
 #[wasm_bindgen_test]
 async fn remote_id_extraction() {
-    let discovery = MockDiscoveryMap::new();
+    let discovery = MockAddressLookupMap::new();
     let endpoint_1 = discovery.spawn_endpoint().await;
     let endpoint_2 = discovery.spawn_endpoint().await;
     endpoint_1.online().await;

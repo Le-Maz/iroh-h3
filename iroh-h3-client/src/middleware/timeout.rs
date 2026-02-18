@@ -57,9 +57,10 @@ mod tests {
     use http::{Response, StatusCode};
     use std::sync::{Arc, Mutex};
 
+    type ResultsInner = Vec<Result<Response<Body>, Error>>;
     /// Mock service that can delay or return responses/errors in sequence.
     struct MockService {
-        results: Arc<Mutex<Vec<Result<Response<Body>, Error>>>>,
+        results: Arc<Mutex<ResultsInner>>,
         delay_ms: u64,
     }
 

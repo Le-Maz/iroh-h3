@@ -353,7 +353,7 @@ mod tests {
         );
 
         verify_body(req, |body_bytes| {
-            let body_str = std::str::from_utf8(&body_bytes).expect("body is valid UTF-8");
+            let body_str = std::str::from_utf8(body_bytes).expect("body is valid UTF-8");
             let lines: Vec<&str> = body_str.lines().collect();
 
             let parsed: Vec<Value> = lines

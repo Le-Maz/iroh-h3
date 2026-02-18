@@ -7,16 +7,16 @@ use std::{
 use futures_lite::StreamExt;
 use iroh::{
     Endpoint, EndpointId,
-    discovery::{Discovery, DiscoveryItem, EndpointData, EndpointInfo, IntoDiscovery},
+    address_lookup::{AddressLookup, EndpointData, EndpointInfo, IntoAddressLookup, Item},
 };
 use n0_future::Stream;
 
 #[derive(Debug, Default, Clone)]
-pub struct MockDiscoveryMap {
+pub struct MockAddressLookupMap {
     peers: Arc<RwLock<BTreeMap<EndpointId, Arc<EndpointData>>>>,
 }
 
-impl MockDiscoveryMap {
+impl MockAddressLookupMap {
     #[inline]
     pub fn new() -> Self {
         Default::default()
@@ -24,19 +24,19 @@ impl MockDiscoveryMap {
 
     pub async fn spawn_endpoint(&self) -> Endpoint {
         Endpoint::builder()
-            .discovery(self.clone())
+            .address_lookup(self.clone())
             .bind()
             .await
             .unwrap()
     }
 }
 
-impl IntoDiscovery for MockDiscoveryMap {
-    fn into_discovery(
+impl IntoAddressLookup for MockAddressLookupMap {
+    fn into_address_lookup(
         self,
-        endpoint: &iroh::Endpoint,
-    ) -> Result<impl Discovery, iroh::discovery::IntoDiscoveryError> {
-        Ok(MockDiscovery {
+        endpoint: &Endpoint,
+    ) -> Result<impl AddressLookup, iroh::address_lookup::IntoAddressLookupError> {
+        Ok(MockAddressLookup {
             id: endpoint.id(),
             map: self.clone(),
         })
@@ -44,26 +44,25 @@ impl IntoDiscovery for MockDiscoveryMap {
 }
 
 #[derive(Debug, Clone)]
-pub struct MockDiscovery {
+pub struct MockAddressLookup {
     id: EndpointId,
-    map: MockDiscoveryMap,
+    map: MockAddressLookupMap,
 }
 
-impl MockDiscovery {
-    pub fn new(id: EndpointId, map: MockDiscoveryMap) -> Self {
+impl MockAddressLookup {
+    pub fn new(id: EndpointId, map: MockAddressLookupMap) -> Self {
         Self { id, map }
     }
 }
 
 #[cfg(not(target_family = "wasm"))]
-type BoxStream = Pin<
-    Box<dyn Stream<Item = Result<DiscoveryItem, iroh::discovery::DiscoveryError>> + Send + 'static>,
->;
+type BoxStream =
+    Pin<Box<dyn Stream<Item = Result<Item, iroh::address_lookup::Error>> + Send + 'static>>;
 #[cfg(target_family = "wasm")]
 type BoxStream =
     Pin<Box<dyn Stream<Item = Result<DiscoveryItem, iroh::discovery::DiscoveryError>> + 'static>>;
 
-impl Discovery for MockDiscovery {
+impl AddressLookup for MockAddressLookup {
     fn publish(&self, data: &EndpointData) {
         self.map
             .peers
@@ -79,7 +78,7 @@ impl Discovery for MockDiscovery {
 
         let info = EndpointInfo::new(endpoint_id).with_ip_addrs(ip_addrs);
 
-        let discovery_item = DiscoveryItem::new(info, "mock", None);
+        let discovery_item = Item::new(info, "mock", None);
 
         Some(futures_lite::stream::once(Ok(discovery_item)).boxed())
     }
