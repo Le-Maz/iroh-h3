@@ -13,5 +13,5 @@ categories = ["network-programming", "asynchronous"]
 bytes = "1.10"
 futures = "0.3.31"
 h3 = "0.0.8"
-iroh = "0.97.0"
+iroh = "0.98.0"
 tokio-util = "0.7.17"

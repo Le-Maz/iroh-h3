@@ -10,8 +10,8 @@ use crate::{
     middleware::{Middleware, Service},
 };
 use http::{Request, Response};
-use std::time::Duration;
 use n0_future::time;
+use std::time::Duration;
 use tracing::{debug, instrument};
 
 /// Middleware that applies a timeout to each request.

@@ -14,7 +14,7 @@ iroh-h3 = { version = "0.2.0", path = "../iroh-h3" }
 bytes = "1.10"
 futures-lite = "2.6"
 h3 = "0.0.8"
-iroh = "0.97.0"
+iroh = "0.98.0"
 tokio = { version = "1.48", features = ["rt"], default-features = false }
 axum = { version = "0.8.6", default-features = false }
 http = "1.3"
