@@ -18,6 +18,7 @@ use iroh::{Endpoint, EndpointId};
 use iroh_h3::BidiStream;
 use iroh_h3::{Connection as IrohH3Connection, OpenStreams};
 use n0_future::{task, time}; // unifies wasm/tokio task spawning, time, etc.
+use tokio::sync::broadcast;
 use tracing::instrument;
 use tracing::trace;
 use tracing::warn;
@@ -32,11 +33,21 @@ type Sender = h3::client::SendRequest<OpenStreams, Bytes>;
 type SenderFuture = Pin<Box<dyn futures::Future<Output = Result<Sender, Arc<Error>>> + Send>>;
 type CachedSender = Shared<SenderFuture>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ConnectionManager {
     endpoint: Endpoint,
     alpn: Vec<u8>,
     sender_cache: Arc<DashMap<EndpointId, CachedSender>>,
+    disconnect_tx: Option<broadcast::Sender<EndpointId>>,
+}
+
+impl std::fmt::Debug for ConnectionManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionManager")
+            .field("alpn", &self.alpn)
+            .field("sender_cache_len", &self.sender_cache.len())
+            .finish()
+    }
 }
 
 impl ConnectionManager {
@@ -45,7 +56,17 @@ impl ConnectionManager {
             endpoint,
             alpn,
             sender_cache: Default::default(),
+            disconnect_tx: None,
         }
+    }
+
+    /// Set a broadcast channel sender for connection disconnect notifications.
+    ///
+    /// When a QUIC connection closes (graceful or timeout), the peer's `EndpointId`
+    /// will be sent on this channel.
+    pub fn with_disconnect_notify(mut self, tx: broadcast::Sender<EndpointId>) -> Self {
+        self.disconnect_tx = Some(tx);
+        self
     }
 
     #[instrument(skip(self, peer_id))]
@@ -140,6 +161,9 @@ impl ConnectionManager {
             peer_id.fmt_short()
         );
         self.sender_cache.remove(&peer_id);
+        if let Some(tx) = &self.disconnect_tx {
+            let _ = tx.send(peer_id);
+        }
     }
 
     /// Sends an HTTP body over the given request stream.

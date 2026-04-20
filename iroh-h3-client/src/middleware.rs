@@ -12,6 +12,7 @@
 pub mod cookie_jar;
 pub mod follow_redirects;
 pub mod retry_failures;
+pub mod smart_timeout;
 pub mod timeout;
 
 use futures::future::BoxFuture;

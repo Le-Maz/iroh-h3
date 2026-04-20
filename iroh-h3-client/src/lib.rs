@@ -44,6 +44,8 @@ use crate::error::Error;
 use crate::middleware::{Middleware, Pipeline, Service};
 use crate::request::RequestBuilder;
 
+pub use iroh::EndpointId;
+
 /// An HTTP/3 client built on top of an [`iroh`] QUIC [`Endpoint`].
 ///
 /// The [`IrohH3Client`] handles the setup and management of QUIC + HTTP/3
@@ -146,6 +148,25 @@ impl IrohH3Client {
         middleware: impl Middleware + 'static,
     ) -> Self {
         let service = Pipeline::with_middleware(middleware, ConnectionManager::new(endpoint, alpn));
+        let inner = ClientInner { service };
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+
+    /// Creates a new `IrohH3Client` with middleware and a disconnect notification channel.
+    ///
+    /// Like [`with_middleware`](Self::with_middleware), but also configures the underlying
+    /// connection manager to send the peer's [`EndpointId`] on the provided broadcast channel
+    /// whenever a QUIC connection closes (graceful shutdown or timeout).
+    pub fn with_disconnect_notify(
+        endpoint: Endpoint,
+        alpn: Vec<u8>,
+        middleware: impl Middleware + 'static,
+        disconnect_tx: tokio::sync::broadcast::Sender<EndpointId>,
+    ) -> Self {
+        let cm = ConnectionManager::new(endpoint, alpn).with_disconnect_notify(disconnect_tx);
+        let service = Pipeline::with_middleware(middleware, cm);
         let inner = ClientInner { service };
         Self {
             inner: Arc::new(inner),
