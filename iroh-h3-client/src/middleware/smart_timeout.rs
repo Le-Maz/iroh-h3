@@ -23,6 +23,15 @@ use n0_future::time;
 use std::time::Duration;
 use tracing::{debug, instrument};
 
+/// Per-request extension that overrides [`SmartTimeout`]'s default duration
+/// for the current request.
+///
+/// Useful for specific endpoints (e.g. pairing PIN submit on flaky P2P paths)
+/// that need a longer deadline than the default without impacting other calls.
+/// Exempt-prefix matching still wins over this override.
+#[derive(Copy, Clone, Debug)]
+pub struct OverrideTimeout(pub Duration);
+
 /// Middleware that applies a timeout to requests, with path-based exemptions.
 ///
 /// Requests whose URI path starts with any of the configured exempt prefixes
@@ -74,8 +83,18 @@ impl Middleware for SmartTimeout {
             return next.handle(request).await;
         }
 
-        debug!("sending request with timeout");
-        match time::timeout(self.duration, next.handle(request)).await {
+        // Per-request override takes precedence over the default duration.
+        let duration = request
+            .extensions()
+            .get::<OverrideTimeout>()
+            .map(|o| o.0)
+            .unwrap_or(self.duration);
+
+        debug!(
+            duration_ms = duration.as_millis(),
+            "sending request with timeout"
+        );
+        match time::timeout(duration, next.handle(request)).await {
             Ok(result) => result,
             Err(_) => Err(MiddlewareError::Timeout.into()),
         }
@@ -147,8 +166,7 @@ mod tests {
     #[tokio::test]
     async fn exempt_prefix_bypasses_timeout() {
         let service = MockService::new(vec![Ok(ok_response())], 200);
-        let mw = SmartTimeout::new(Duration::from_millis(50))
-            .exempt_prefix("/api/v1/xxx_stream");
+        let mw = SmartTimeout::new(Duration::from_millis(50)).exempt_prefix("/api/v1/xxx_stream");
         let req = Request::builder()
             .uri("/api/v1/xxx_stream?aaa=abc")
             .body(Body::empty())
@@ -162,8 +180,7 @@ mod tests {
     #[tokio::test]
     async fn non_matching_prefix_still_times_out() {
         let service = MockService::new(vec![Ok(ok_response())], 200);
-        let mw = SmartTimeout::new(Duration::from_millis(50))
-            .exempt_prefix("/api/v1/xxx_stream");
+        let mw = SmartTimeout::new(Duration::from_millis(50)).exempt_prefix("/api/v1/xxx_stream");
         let req = Request::builder()
             .uri("/api/v1/get_library")
             .body(Body::empty())

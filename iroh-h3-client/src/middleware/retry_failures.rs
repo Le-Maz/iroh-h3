@@ -25,6 +25,14 @@ use n0_future::time; // unifies wasm/tokio task spawning.
 use std::ops::ControlFlow;
 use tracing::{debug, instrument, warn};
 
+/// Per-request marker extension that disables retry for the current request.
+///
+/// Attach via `request_builder.extension(DisableRetry)` to opt out of
+/// `RetryFailures`. Useful for non-idempotent endpoints (e.g. pairing /
+/// session-creating POSTs) where a spurious retry would corrupt state.
+#[derive(Copy, Clone, Debug)]
+pub struct DisableRetry;
+
 /// Middleware that automatically retries failed requests with exponential backoff.
 pub struct RetryFailures {
     /// Maximum number of retry attempts.
@@ -44,6 +52,18 @@ impl RetryFailures {
         }
     }
 
+    /// Effective retry budget for the current request.
+    ///
+    /// Returns 0 (no retries) when the request carries a [`DisableRetry`]
+    /// extension; otherwise the middleware's configured `max_retries`.
+    fn effective_max_retries(&self, parts: &http::request::Parts) -> usize {
+        if parts.extensions.get::<DisableRetry>().is_some() {
+            0
+        } else {
+            self.max_retries
+        }
+    }
+
     /// Perform one retry step.
     #[instrument(
         skip(self, parts, body_slot, attempts, next),
@@ -58,6 +78,7 @@ impl RetryFailures {
     ) -> Result<ControlFlow<Response<Body>>, Error> {
         debug!("sending request");
 
+        let max_retries = self.effective_max_retries(parts);
         let req = Request::from_parts(parts.clone(), body_slot.take());
         let result = next.handle(req).await;
 
@@ -80,8 +101,8 @@ impl RetryFailures {
                 *attempts += 1;
                 warn!(attempts = *attempts, %status, "HTTP error; retrying");
 
-                if *attempts > self.max_retries {
-                    warn!("too many retries ({})", self.max_retries);
+                if *attempts > max_retries {
+                    warn!("too many retries ({})", max_retries);
                     return Ok(ControlFlow::Break(response));
                 }
 
@@ -100,8 +121,8 @@ impl RetryFailures {
                 *attempts += 1;
                 warn!(attempts = *attempts, error = ?err, "transport error; retrying");
 
-                if *attempts > self.max_retries {
-                    warn!("too many retries ({})", self.max_retries);
+                if *attempts > max_retries {
+                    warn!("too many retries ({})", max_retries);
                     return Err(MiddlewareError::RetryLimitExceeded(Box::new(err)).into());
                 }
 
@@ -248,5 +269,33 @@ mod tests {
         let result = retry.handle(req, &service).await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn disable_retry_extension_skips_retries_on_error() {
+        let service = MockService::new(vec![Err(err()), Ok(ok_response())]);
+
+        let retry = RetryFailures::new(5, 0);
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(DisableRetry);
+
+        let result = retry.handle(req, &service).await;
+        // First call errors; with DisableRetry attempts > 0 ⇒ retry budget exhausted.
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn disable_retry_extension_returns_first_non_success() {
+        let service = MockService::new(vec![
+            Ok(status_response(StatusCode::CONFLICT)),
+            Ok(ok_response()),
+        ]);
+
+        let retry = RetryFailures::new(5, 0);
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(DisableRetry);
+
+        let resp = retry.handle(req, &service).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
     }
 }
