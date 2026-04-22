@@ -123,6 +123,10 @@ impl RetryFailures {
 
                 if *attempts > max_retries {
                     warn!("too many retries ({})", max_retries);
+                    // max_retries == 0（如 DisableRetry）时从未重试过，原样透传而非包裹 RetryLimitExceeded
+                    if max_retries == 0 {
+                        return Err(err);
+                    }
                     return Err(MiddlewareError::RetryLimitExceeded(Box::new(err)).into());
                 }
 
@@ -281,7 +285,15 @@ mod tests {
 
         let result = retry.handle(req, &service).await;
         // First call errors; with DisableRetry attempts > 0 ⇒ retry budget exhausted.
-        assert!(result.is_err());
+        // Original error is returned as-is, NOT wrapped in RetryLimitExceeded.
+        let err = result.unwrap_err();
+        assert!(
+            !matches!(
+                err,
+                Error::Middleware(MiddlewareError::RetryLimitExceeded(_))
+            ),
+            "DisableRetry should not wrap error in RetryLimitExceeded, got: {err:?}"
+        );
     }
 
     #[tokio::test]
