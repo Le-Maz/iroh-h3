@@ -1560,9 +1560,9 @@ dependencies = [
 
 [[package]]
 name = "iroh"
-version = "0.98.0"
+version = "0.98.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936882068af6037912c205ad73ae83e1ab9b81f5bd01200210c90f000e24f4d3"
+checksum = "9382a37668c84823e94b52eee462b3133ca7252a28de5f619a989d48b69cb30b"
 dependencies = [
  "backon",
  "blake3",
