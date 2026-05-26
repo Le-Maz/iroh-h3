@@ -397,7 +397,7 @@ type ReadChunkFuture = ReusableBoxFuture<
     'static,
     (
         iroh::endpoint::RecvStream,
-        Result<Option<iroh::endpoint::Chunk>, iroh::endpoint::ReadError>,
+        Result<Option<Bytes>, iroh::endpoint::ReadError>,
     ),
 >;
 
@@ -433,9 +433,7 @@ impl quic::RecvStream for RecvStream {
 
         let (stream, chunk) = ready!(self.read_chunk_fut.poll(cx));
         self.stream = Some(stream);
-        Poll::Ready(Ok(chunk
-            .map_err(convert_read_error_to_stream_error)?
-            .map(|c| c.bytes)))
+        Poll::Ready(Ok(chunk.map_err(convert_read_error_to_stream_error)?))
     }
 
     /// Cancels further reception on this stream with the given error code.

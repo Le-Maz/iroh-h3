@@ -12,3 +12,6 @@ readme = "README.md"
 keywords = ["quic", "h3", "http3", "iroh", "p2p"]
 categories = ["network-programming", "asynchronous", "web-programming"]
 authors = ["Lech Mazur <mazurlech@proton.me>"]
+
+[workspace.dependencies]
+iroh = "1.0.0-pre"
