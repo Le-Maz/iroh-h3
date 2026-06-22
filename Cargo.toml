@@ -14,4 +14,4 @@ categories = ["network-programming", "asynchronous", "web-programming"]
 authors = ["Lech Mazur <mazurlech@proton.me>"]
 
 [workspace.dependencies]
-iroh = "1.0.0-pre"
+iroh = "1.0.0"
