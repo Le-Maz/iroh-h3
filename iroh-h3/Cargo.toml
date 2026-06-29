@@ -1,6 +1,6 @@
 [package]
 name = "iroh-h3"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "HTTP/3 transport adapter bridging Iroh's QUIC P2P connections with the h3 HTTP/3 stack."
 license = "MIT"

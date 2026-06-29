@@ -1,6 +1,6 @@
 [package]
 name = "iroh-h3-client"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "HTTP/3 client utilities over Iroh's QUIC P2P transport."
 license = "MIT"
@@ -10,7 +10,7 @@ keywords = ["quic", "p2p", "http3", "h3", "client"]
 categories = ["network-programming", "asynchronous"]
 
 [dependencies]
-iroh-h3 = { version = "0.2.0", path = "../iroh-h3" }
+iroh-h3 = { version = "0.3.0", path = "../iroh-h3" }
 bytes = "1.10"
 futures = "0.3.31"
 h3 = "0.0.8"
