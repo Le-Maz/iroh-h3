@@ -35,6 +35,9 @@ pub use iroh::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt}
 use iroh::endpoint::{ConnectionError, ReadError, WriteError};
 use tokio_util::sync::ReusableBoxFuture;
 
+#[cfg(feature = "datagram")]
+pub mod datagram;
+
 /// BoxStream type alias with `Sync` and `Send` requirements.
 type BoxStreamSync<'a, T> = Pin<Box<dyn Stream<Item = T> + Sync + Send + 'a>>;
 
