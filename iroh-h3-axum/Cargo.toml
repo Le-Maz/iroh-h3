@@ -26,5 +26,5 @@ http-body.workspace = true
 n0-future.workspace = true
 
 [dev-dependencies]
-iroh-h3-client.workspace = true
+iroh-h3-client = { version = "0.6.0", path = "../iroh-h3-client" }
 wasm-bindgen-test.workspace = true
