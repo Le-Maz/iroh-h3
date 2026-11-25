@@ -34,7 +34,7 @@ serde_json = { workspace = true, optional = true }
 mockall.workspace = true
 
 [dev-dependencies]
-iroh-h3-axum = { version = "0.5.0", path = "../iroh-h3-axum" }
+iroh-h3-axum = { path = "../iroh-h3-axum" }
 axum = { workspace = true, features = ["json"], default-features = false }
 wasm-bindgen-test.workspace = true
 
