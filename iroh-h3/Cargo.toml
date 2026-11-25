@@ -1,6 +1,6 @@
 [package]
 name = "iroh-h3"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "HTTP/3 transport adapter bridging Iroh's QUIC P2P connections with the h3 HTTP/3 stack."
 license = "MIT"
@@ -13,16 +13,16 @@ categories = ["network-programming", "asynchronous"]
 datagram = ["dep:h3-datagram"]
 
 [dependencies]
-bytes = "1.10"
-futures = "0.3.31"
-h3 = "0.0.8"
-h3-datagram = { version = "0.0.2", optional = true }
-iroh = { workspace = true }
-tokio-util = "0.7.17"
+bytes.workspace = true
+futures.workspace = true
+h3.workspace = true
+h3-datagram = { workspace = true, optional = true }
+iroh.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
-http = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+http.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [[test]]
 name = "datagram"

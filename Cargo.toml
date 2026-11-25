@@ -1,17 +1,36 @@
 [workspace]
 members = ["iroh-h3", "iroh-h3-client", "iroh-h3-axum"]
-
 resolver = "2"
 
-[workspace.package]
-edition = "2024"
-license = "MIT"
-repository = "https://github.com/Le-Maz/iroh-h3"
-homepage = "https://github.com/Le-Maz/iroh-h3"
-readme = "README.md"
-keywords = ["quic", "h3", "http3", "iroh", "p2p"]
-categories = ["network-programming", "asynchronous", "web-programming"]
-authors = ["Lech Mazur <mazurlech@proton.me>"]
-
 [workspace.dependencies]
-iroh = "1.0.0"
+
+# External deps
+
+bytes = "1.12.2"
+h3 = "0.0.8"
+h3-datagram = "0.0.2"
+http = "1.5.0"
+iroh = "1.5.0"
+n0-future = "0.3.2"
+futures = "0.3.34"
+futures-lite = "2.6.1"
+tokio = { version = "1.54.1", default-features = false }
+tokio-util = "0.7.20"
+http-body = "1.1.0"
+http-body-util = "0.1.5"
+thiserror = "2.0.21"
+dashmap = "6.2.1"
+tracing = "0.1.44"
+cookie = { version = "0.18.3", features = ["percent-encode"] }
+serde = "1.0.229"
+serde_json = "1.0.154"
+mockall = "0.15.0"
+tower-service = "0.3.3"
+axum = { version = "0.8.9", default-features = false, features = ["json"] }
+wasm-bindgen-test = "0.3.80"
+
+# Internal deps
+
+iroh-h3 = { version = "0.4.0", path = "./iroh-h3" }
+iroh-h3-axum = { version = "0.5.0", path = "./iroh-h3-axum" }
+iroh-h3-client = { version = "0.6.0", path = "./iroh-h3-client" }
